@@ -103,12 +103,7 @@
         }
 
         answerEl.textContent = body.answer;
-
-        const confidenceHtml = formatConfidence(body.confidence);
-        metaEl.innerHTML = `Modelo: ${body.model_used}` +
-          (body.sql_used?.length ? ` · SQL: ${body.sql_used.length} consulta(s)` : "") +
-          (confidenceHtml ? ` · ${confidenceHtml}` : "");
-
+        renderMeta(metaEl, body);
         renderSqlIfPresent(body.sql_used);
         renderReasoningIfPresent(body.reasoning, body.schema_link);
         renderChartIfApplicable(body.data);
@@ -117,11 +112,32 @@
       }
     }
 
-    function formatConfidence(confidence) {
-      if (typeof confidence !== "number") return "";
+    function renderMeta(metaEl, body) {
+      // Construído via DOM (textContent/createElement), nunca innerHTML —
+      // model_used e sql_used.length vêm da API, mas não há motivo para
+      // depender disso continuar seguro no futuro.
+      metaEl.textContent = "";
+      metaEl.append(`Modelo: ${body.model_used}`);
+
+      if (body.sql_used?.length) {
+        metaEl.append(` · SQL: ${body.sql_used.length} consulta(s)`);
+      }
+
+      const confidenceEl = buildConfidenceBadge(body.confidence);
+      if (confidenceEl) {
+        metaEl.append(" · ", confidenceEl);
+      }
+    }
+
+    function buildConfidenceBadge(confidence) {
+      if (typeof confidence !== "number") return null;
       const pct = Math.round(confidence * 100);
       const level = confidence >= 0.75 ? "alta" : confidence >= 0.4 ? "media" : "baixa";
-      return `<span id="confidence" class="${level}">Confiança: ${pct}%</span>`;
+      const span = document.createElement("span");
+      span.id = "confidence";
+      span.className = level;
+      span.textContent = `Confiança: ${pct}%`;
+      return span;
     }
 
     function renderSqlIfPresent(sqlUsed) {
