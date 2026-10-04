@@ -5,7 +5,7 @@ import pytest
 
 from app.cache import ResponseCache
 from app.memory import SessionMemory
-from app.orchestrator import AllModelsFailedError, ModelUnavailable, Orchestrator
+from app.orchestrator import AllModelsFailedError, ModelUnavailable, Orchestrator, _coerce_confidence
 
 MODEL_A = "model-a:free"
 MODEL_B = "model-b:free"
@@ -326,6 +326,27 @@ def test_finalize_answer_confidence_is_clamped_to_unit_range(empty_cache):
     result = orchestrator.ask("pergunta")
 
     assert result["confidence"] == 1.0
+
+
+def test_coerce_confidence_rejects_nan():
+    assert _coerce_confidence(float("nan")) is None
+
+
+def test_coerce_confidence_rejects_infinity():
+    assert _coerce_confidence(float("inf")) is None
+    assert _coerce_confidence(float("-inf")) is None
+
+
+def test_coerce_confidence_rejects_boolean():
+    # bool é subclasse de int em Python — float(True) == 1.0 passaria sem
+    # essa checagem explícita, mas um booleano nunca é um valor de
+    # confiança intencional vindo do modelo.
+    assert _coerce_confidence(True) is None
+    assert _coerce_confidence(False) is None
+
+
+def test_coerce_confidence_accepts_normal_value():
+    assert _coerce_confidence(0.75) == 0.75
 
 
 def test_escalates_to_next_model_after_iteration_budget_exhausted(empty_cache):

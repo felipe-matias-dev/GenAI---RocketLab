@@ -1,4 +1,5 @@
 import json
+import math
 from typing import Callable, Optional
 
 from app.cache import ResponseCache
@@ -97,12 +98,19 @@ def _coerce_confidence(value) -> Optional[float]:
     """Converte `value` em float clampado a [0.0, 1.0]; None se não for numérico.
 
     Defesa contra modelos gratuitos instáveis que podem mandar uma string,
-    None, ou um número fora da faixa esperada no campo `confidence` de
-    `finalize_answer`.
+    None, um booleano, nan/inf, ou um número fora da faixa esperada no
+    campo `confidence` de `finalize_answer`.
     """
+    if isinstance(value, bool):
+        # bool é subclasse de int — float(True) == 1.0 passaria sem essa
+        # checagem, mas um booleano nunca é um valor de confiança
+        # intencional.
+        return None
     try:
         number = float(value)
     except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
         return None
     return max(0.0, min(1.0, number))
 
