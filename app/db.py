@@ -48,6 +48,34 @@ def get_schema_description(db_path: str = str(DB_PATH)) -> str:
         conn.close()
 
 
+def get_distinct_values(
+    table: str, column: str, limit: int = 200, db_path: Path = DB_PATH
+) -> list:
+    """Retorna valores distintos não nulos de `column` em `table`.
+
+    Usado pela tool homônima para o LLM descobrir a grafia exata de valores
+    de texto (ex.: nome de gênero) antes de montar um filtro WHERE — table/
+    column não podem usar placeholders `?` do sqlite3, então são validados
+    contra o schema real (allow-list) antes de entrar na query interpolada.
+    """
+    conn = get_connection(db_path)
+    try:
+        if table not in list_tables(db_path):
+            raise ValueError(f"Tabela desconhecida: {table}")
+
+        columns = {name for name, _ in _table_columns(conn, table)}
+        if column not in columns:
+            raise ValueError(f"Coluna desconhecida em {table}: {column}")
+
+        cur = conn.execute(
+            f'SELECT DISTINCT "{column}" FROM "{table}" '
+            f'WHERE "{column}" IS NOT NULL LIMIT {limit}'
+        )
+        return [row[0] for row in cur.fetchall()]
+    finally:
+        conn.close()
+
+
 def run_query(sql: str, db_path: Path = DB_PATH) -> list[dict]:
     """Executa uma query já validada pelo guardrail e retorna linhas como dicts."""
     conn = get_connection(db_path)

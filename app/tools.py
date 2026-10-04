@@ -1,6 +1,6 @@
 import sqlite3
 
-from app.db import run_query
+from app.db import get_distinct_values, run_query
 from app.guardrails import GuardrailViolation, validate_sql
 
 TOOL_SCHEMAS = [
@@ -51,6 +51,31 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_distinct_values",
+            "description": (
+                "Lista os valores distintos de uma coluna de texto (ex.: "
+                "nome de gênero, de pessoa ou de produtora) para descobrir a "
+                "grafia exata usada no banco antes de montar um filtro WHERE."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "table": {
+                        "type": "string",
+                        "description": "Nome da tabela a inspecionar.",
+                    },
+                    "column": {
+                        "type": "string",
+                        "description": "Nome da coluna de texto a inspecionar.",
+                    },
+                },
+                "required": ["table", "column"],
+            },
+        },
+    },
 ]
 
 
@@ -59,6 +84,8 @@ def execute_tool(name: str, arguments: dict) -> dict:
         return _execute_sql(arguments.get("query", ""))
     if name == "semantic_search_synopses":
         return _semantic_search(arguments.get("query", ""), arguments.get("k", 5))
+    if name == "get_distinct_values":
+        return _get_distinct_values(arguments.get("table", ""), arguments.get("column", ""))
     return {"ok": False, "error": f"Ferramenta desconhecida: {name}"}
 
 
@@ -74,6 +101,17 @@ def _execute_sql(query: str) -> dict:
         return {"ok": False, "error": str(exc)}
 
     return {"ok": True, "rows": rows}
+
+
+def _get_distinct_values(table: str, column: str) -> dict:
+    try:
+        values = get_distinct_values(table, column)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    except sqlite3.Error as exc:
+        return {"ok": False, "error": str(exc)}
+
+    return {"ok": True, "values": values}
 
 
 def _semantic_search(query: str, k: int) -> dict:

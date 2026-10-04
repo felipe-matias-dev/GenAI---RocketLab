@@ -25,6 +25,21 @@ def test_explain_query_executes_through_run_query():
     assert len(rows) > 0
 
 
+def test_get_distinct_values_returns_known_genre():
+    values = db.get_distinct_values("dim_genres", "nome_genero")
+    assert "Science Fiction" in values
+
+
+def test_get_distinct_values_rejects_unknown_table():
+    with pytest.raises(ValueError):
+        db.get_distinct_values("tabela_que_nao_existe", "nome_genero")
+
+
+def test_get_distinct_values_rejects_unknown_column():
+    with pytest.raises(ValueError):
+        db.get_distinct_values("dim_genres", "coluna_que_nao_existe")
+
+
 def test_connection_is_read_only_at_driver_level():
     conn = db.get_connection()
     try:

@@ -106,5 +106,11 @@
     "category": "Depuração (EXPLAIN)",
     "question": "Explique o plano de execução da consulta que lista os 10 filmes com maior receita em R$.",
     "expected_shape": "Deve acionar execute_sql com uma query iniciada por EXPLAIN QUERY PLAN SELECT..., aceita pelo guardrail; resposta em linguagem natural descrevendo o plano."
+  },
+  {
+    "id": "distinct-01",
+    "category": "Descoberta de valores (get_distinct_values)",
+    "question": "Quantos filmes existem no gênero 'Sci-Fi'?",
+    "expected_shape": "Deve chamar get_distinct_values(dim_genres, nome_genero) antes de filtrar, descobrir que o valor real é 'Science Fiction', e então contar com COUNT(*)."
   }
 ]

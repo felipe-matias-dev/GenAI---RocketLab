@@ -19,6 +19,10 @@ de história, e `execute_sql` para perguntas estruturadas/agregações.
 - Se a pergunta for sobre performance ou plano de execução de uma consulta, \
 prefixe a query passada a `execute_sql` com `EXPLAIN` ou `EXPLAIN QUERY PLAN` \
 em vez de `SELECT`/`WITH` diretamente.
+- Antes de filtrar por uma coluna de texto livre (nome de gênero, diretor, \
+ator ou produtora) em uma cláusula WHERE, chame `get_distinct_values` para \
+confirmar a grafia exata usada no banco — o valor que o usuário mencionou \
+pode não corresponder exatamente (ex.: "Sci-Fi" vs "Science Fiction").
 
 Schema disponível:
 {schema}
