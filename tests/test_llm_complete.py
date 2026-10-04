@@ -53,6 +53,37 @@ def test_complete_raises_model_unavailable_on_server_error():
         complete(client, "some-model:free", [], [])
 
 
+def test_complete_omits_tools_kwarg_when_tools_list_is_empty():
+    calls = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            calls.update(kwargs)
+            return SimpleNamespace(choices=[])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    complete(client, "some-model:free", [{"role": "user", "content": "oi"}], [])
+
+    assert "tools" not in calls
+
+
+def test_complete_includes_tools_kwarg_when_tools_list_is_nonempty():
+    calls = {}
+    tool_schemas = [{"type": "function", "function": {"name": "execute_sql"}}]
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            calls.update(kwargs)
+            return SimpleNamespace(choices=[])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    complete(client, "some-model:free", [{"role": "user", "content": "oi"}], tool_schemas)
+
+    assert calls["tools"] == tool_schemas
+
+
 def test_complete_reraises_authentication_error():
     class FakeCompletions:
         def create(self, **kwargs):

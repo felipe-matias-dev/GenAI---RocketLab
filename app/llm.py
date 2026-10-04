@@ -17,7 +17,10 @@ def complete(client: OpenAI, model: str, messages: list[dict], tools: list[dict]
     ModelUnavailable, para que o orchestrator escale para o próximo modelo da
     cadeia. Outros erros (ex.: 401 de chave inválida) propagam sem conversão,
     já que trocar de modelo gratuito não resolveria."""
+    kwargs = {"model": model, "messages": messages}
+    if tools:
+        kwargs["tools"] = tools
     try:
-        return client.chat.completions.create(model=model, messages=messages, tools=tools)
+        return client.chat.completions.create(**kwargs)
     except _INFRA_ERRORS as exc:
         raise ModelUnavailable(str(exc)) from exc
