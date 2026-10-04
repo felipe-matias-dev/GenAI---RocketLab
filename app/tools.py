@@ -76,7 +76,41 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "finalize_answer",
+            "description": (
+                "Conclui o turno com a resposta final em linguagem natural, "
+                "um score de confiança e o raciocínio que levou à resposta. "
+                "Deve ser chamada para encerrar toda resposta, mesmo uma "
+                "recusa."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "type": "string",
+                        "description": "Resposta final em linguagem natural (pt-BR).",
+                    },
+                    "confidence": {
+                        "type": "number",
+                        "description": "Confiança na resposta, de 0.0 a 1.0.",
+                    },
+                    "reasoning": {
+                        "type": "string",
+                        "description": "Raciocínio resumido que levou a essa resposta.",
+                    },
+                },
+                "required": ["answer", "confidence", "reasoning"],
+            },
+        },
+    },
 ]
+# "finalize_answer" é terminal: não tem branch em execute_tool() porque o
+# orchestrator a intercepta dentro do loop de tool-calling (ver
+# _run_with_model em app/orchestrator.py) antes de qualquer chamada chegar
+# até aqui — ela nunca é despachada como uma tool comum.
 
 
 def execute_tool(name: str, arguments: dict) -> dict:

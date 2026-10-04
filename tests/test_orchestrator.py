@@ -54,6 +54,8 @@ def test_returns_final_answer_without_tool_calls(empty_cache):
     assert result["model_used"] == MODEL_A
     assert result["sql_used"] == []
     assert calls == [MODEL_A]
+    assert result["confidence"] is None
+    assert result["reasoning"] is None
 
 
 def test_executes_tool_call_and_feeds_result_back(empty_cache):
@@ -115,6 +117,125 @@ def test_tool_call_history_sent_back_is_json_serializable_plain_dicts(empty_cach
             "function": {"name": "execute_sql", "arguments": json.dumps({"query": "SELECT 1"})},
         }
     ]
+
+
+def test_finalize_answer_tool_call_ends_turn_with_confidence_and_reasoning(empty_cache):
+    calls = []
+
+    def complete_fn(model, messages, tools):
+        calls.append(model)
+        return make_response(
+            tool_calls=[
+                make_tool_call(
+                    "call-1",
+                    "finalize_answer",
+                    {"answer": "X", "confidence": 0.9, "reasoning": "porque sim"},
+                )
+            ]
+        )
+
+    orchestrator = build_orchestrator(complete_fn, cache=empty_cache)
+    result = orchestrator.ask("pergunta")
+
+    assert result == {
+        "answer": "X",
+        "sql_used": [],
+        "data": None,
+        "model_used": MODEL_A,
+        "confidence": 0.9,
+        "reasoning": "porque sim",
+    }
+    # O loop termina imediatamente ao ver finalize_answer — não há segunda
+    # rodada de complete_fn esperando uma resposta de texto livre.
+    assert calls == [MODEL_A]
+
+
+def test_finalize_answer_alongside_execute_sql_in_same_turn_still_captures_sql_used(
+    empty_cache,
+):
+    def tool_executor(name, arguments):
+        return {"ok": True, "rows": [{"titulo": "Filme X"}]}
+
+    def complete_fn(model, messages, tools):
+        return make_response(
+            tool_calls=[
+                make_tool_call(
+                    "call-1", "execute_sql", {"query": "SELECT titulo FROM dim_movies"}
+                ),
+                make_tool_call(
+                    "call-2",
+                    "finalize_answer",
+                    {"answer": "O filme é Filme X.", "confidence": 0.8, "reasoning": "ok"},
+                ),
+            ]
+        )
+
+    orchestrator = build_orchestrator(complete_fn, tool_executor=tool_executor, cache=empty_cache)
+    result = orchestrator.ask("Qual filme?")
+
+    assert result["answer"] == "O filme é Filme X."
+    assert result["confidence"] == 0.8
+    assert result["reasoning"] == "ok"
+    assert result["sql_used"] == ["SELECT titulo FROM dim_movies"]
+    assert result["data"] == [{"titulo": "Filme X"}]
+
+
+def test_finalize_answer_never_reaches_tool_executor(empty_cache):
+    tool_calls_seen = []
+
+    def tool_executor(name, arguments):
+        tool_calls_seen.append(name)
+        return {"ok": True, "rows": []}
+
+    def complete_fn(model, messages, tools):
+        return make_response(
+            tool_calls=[
+                make_tool_call(
+                    "call-1", "finalize_answer", {"answer": "ok", "confidence": 1.0, "reasoning": "r"}
+                )
+            ]
+        )
+
+    orchestrator = build_orchestrator(complete_fn, tool_executor=tool_executor, cache=empty_cache)
+    orchestrator.ask("pergunta")
+
+    assert "finalize_answer" not in tool_calls_seen
+
+
+def test_finalize_answer_with_invalid_confidence_coerces_to_none(empty_cache):
+    def complete_fn(model, messages, tools):
+        return make_response(
+            tool_calls=[
+                make_tool_call(
+                    "call-1",
+                    "finalize_answer",
+                    {"answer": "ok", "confidence": "não é número", "reasoning": "r"},
+                )
+            ]
+        )
+
+    orchestrator = build_orchestrator(complete_fn, cache=empty_cache)
+    result = orchestrator.ask("pergunta")
+
+    assert result["confidence"] is None
+
+
+def test_finalize_answer_confidence_is_clamped_to_unit_range(empty_cache):
+    def complete_fn(model, messages, tools):
+        return make_response(
+            tool_calls=[
+                make_tool_call(
+                    "call-1",
+                    "finalize_answer",
+                    {"answer": "ok", "confidence": 5.0, "reasoning": "r"},
+                )
+            ]
+        )
+
+    orchestrator = build_orchestrator(complete_fn, cache=empty_cache)
+    result = orchestrator.ask("pergunta")
+
+    assert result["confidence"] == 1.0
 
 
 def test_escalates_to_next_model_after_iteration_budget_exhausted(empty_cache):

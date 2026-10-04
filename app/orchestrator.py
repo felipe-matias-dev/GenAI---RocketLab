@@ -24,6 +24,12 @@ ator ou produtora) em uma cláusula WHERE, chame `get_distinct_values` para \
 confirmar a grafia exata usada no banco — o valor que o usuário mencionou \
 pode não corresponder exatamente (ex.: "Sci-Fi" vs "Science Fiction").
 
+Para concluir sua resposta:
+- Você DEVE sempre chamar a tool `finalize_answer` para encerrar o turno, \
+nunca responda em texto livre sem chamá-la. Informe `answer` (resposta em \
+pt-BR), `confidence` (0.0 a 1.0, sua confiança real na resposta) e \
+`reasoning` (raciocínio resumido que levou a essa resposta).
+
 Schema disponível:
 {schema}
 """
@@ -39,6 +45,20 @@ class AllModelsFailedError(Exception):
 
 CompleteFn = Callable[[str, list[dict], list[dict]], object]
 ToolExecutor = Callable[[str, dict], dict]
+
+
+def _coerce_confidence(value) -> Optional[float]:
+    """Converte `value` em float clampado a [0.0, 1.0]; None se não for numérico.
+
+    Defesa contra modelos gratuitos instáveis que podem mandar uma string,
+    None, ou um número fora da faixa esperada no campo `confidence` de
+    `finalize_answer`.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, min(1.0, number))
 
 
 class Orchestrator:
@@ -105,11 +125,15 @@ class Orchestrator:
             message = response.choices[0].message
 
             if message.content and not message.tool_calls:
+                # Caminho legado: fallback defensivo para um modelo que
+                # ignore a instrução de sempre chamar finalize_answer.
                 return {
                     "answer": message.content,
                     "sql_used": sql_used,
                     "data": last_data,
                     "model_used": model,
+                    "confidence": None,
+                    "reasoning": None,
                 }
 
             if not message.tool_calls:
@@ -136,8 +160,21 @@ class Orchestrator:
                 }
             )
 
+            finalize_result = None
+
             for tool_call in message.tool_calls:
                 arguments = json.loads(tool_call.function.arguments)
+
+                if tool_call.function.name == "finalize_answer":
+                    # Terminal: não passa pelo tool_executor nem gera
+                    # mensagem role:tool — o loop termina já nesta iteração.
+                    finalize_result = {
+                        "answer": arguments.get("answer", ""),
+                        "confidence": _coerce_confidence(arguments.get("confidence")),
+                        "reasoning": arguments.get("reasoning", ""),
+                    }
+                    continue
+
                 result = self._tool_executor(tool_call.function.name, arguments)
 
                 if tool_call.function.name == "execute_sql" and result.get("ok"):
@@ -151,5 +188,13 @@ class Orchestrator:
                         "content": json.dumps(result, ensure_ascii=False),
                     }
                 )
+
+            if finalize_result is not None:
+                return {
+                    "sql_used": sql_used,
+                    "data": last_data,
+                    "model_used": model,
+                    **finalize_result,
+                }
 
         return None

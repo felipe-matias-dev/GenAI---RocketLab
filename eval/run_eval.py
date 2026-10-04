@@ -33,9 +33,13 @@ def run() -> None:
             answer = result["answer"]
             model_used = result["model_used"]
             sql_used = " | ".join(result["sql_used"]) or "-"
+            confidence = result.get("confidence")
+            reasoning = result.get("reasoning")
+            schema_link = result.get("schema_link")
             error = None
         except AllModelsFailedError as exc:
             answer, model_used, sql_used = "-", "-", "-"
+            confidence, reasoning, schema_link = None, None, None
             error = str(exc)
         elapsed = time.monotonic() - start
 
@@ -48,6 +52,9 @@ def run() -> None:
                 "answer": answer,
                 "model_used": model_used,
                 "sql_used": sql_used,
+                "confidence": confidence,
+                "reasoning": reasoning,
+                "schema_link": schema_link,
                 "elapsed_s": round(elapsed, 1),
                 "error": error,
             }
@@ -70,6 +77,12 @@ def _write_report(rows: list[dict]) -> None:
             lines.append(f"**Resposta do agente:** {row['answer']}\n")
             lines.append(f"**SQL usada:** `{row['sql_used']}`\n")
             lines.append(f"**Modelo:** {row['model_used']} · **Tempo:** {row['elapsed_s']}s\n")
+            confidence = row.get("confidence")
+            confidence_text = f"{confidence:.0%}" if confidence is not None else "n/d"
+            lines.append(f"**Confiança:** {confidence_text}\n")
+            lines.append(f"**Raciocínio:** {row.get('reasoning') or 'n/d'}\n")
+            schema_link = row.get("schema_link")
+            lines.append(f"**Schema linking:** {schema_link or 'n/d'}\n")
         lines.append("")
 
     RESULTS_PATH.write_text("\n".join(lines), encoding="utf-8")
