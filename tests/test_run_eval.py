@@ -55,6 +55,10 @@ def test_write_report_includes_confidence_and_reasoning_when_present(tmp_path, m
     assert "90%" in content
     assert "porque a query retornou dados consistentes" in content
     assert "dim_movies" in content
+    # schema_link deve ser formatado como texto legível, não o repr bruto
+    # do dict Python (que exporia aspas/chaves de sintaxe Python no .md).
+    assert "{'tables'" not in content
+    assert "tabelas: dim_movies" in content.lower()
 
 
 def test_write_report_includes_error_when_present(tmp_path, monkeypatch):

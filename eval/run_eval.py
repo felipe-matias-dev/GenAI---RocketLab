@@ -81,11 +81,21 @@ def _write_report(rows: list[dict]) -> None:
             confidence_text = f"{confidence:.0%}" if confidence is not None else "n/d"
             lines.append(f"**Confiança:** {confidence_text}\n")
             lines.append(f"**Raciocínio:** {row.get('reasoning') or 'n/d'}\n")
-            schema_link = row.get("schema_link")
-            lines.append(f"**Schema linking:** {schema_link or 'n/d'}\n")
+            lines.append(f"**Schema linking:** {_format_schema_link(row.get('schema_link'))}\n")
         lines.append("")
 
     RESULTS_PATH.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _format_schema_link(schema_link: dict | None) -> str:
+    """Formata schema_link como texto legível, em vez do repr bruto do dict
+    Python (que exporia sintaxe de dict no relatório .md)."""
+    if not schema_link:
+        return "n/d"
+    tables = ", ".join(schema_link.get("tables") or []) or "(nenhuma)"
+    columns = ", ".join(schema_link.get("columns") or []) or "(nenhuma)"
+    reasoning = schema_link.get("reasoning") or "n/d"
+    return f"tabelas: {tables}; colunas: {columns}; raciocínio: {reasoning}"
 
 
 if __name__ == "__main__":
