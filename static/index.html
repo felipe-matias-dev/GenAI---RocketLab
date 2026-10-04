@@ -35,6 +35,25 @@
     #meta { color: #888; font-size: 0.85rem; margin-top: 0.5rem; }
     canvas { margin-top: 1.5rem; max-height: 360px; }
     code { background: rgba(128,128,128,0.15); padding: 0.1rem 0.3rem; border-radius: 4px; }
+    pre {
+      background: rgba(128,128,128,0.1);
+      padding: 0.6rem;
+      border-radius: 4px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+    details { margin-top: 1rem; }
+    summary { cursor: pointer; font-size: 0.9rem; color: #888; }
+    #confidence {
+      display: inline-block;
+      padding: 0.1rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    #confidence.alta { background: rgba(0,170,80,0.2); }
+    #confidence.media { background: rgba(230,160,0,0.2); }
+    #confidence.baixa { background: rgba(220,50,50,0.2); }
   </style>
 </head>
 <body>
@@ -48,6 +67,14 @@
   <div id="answer"></div>
   <div id="meta"></div>
   <canvas id="chart" style="display:none"></canvas>
+
+  <pre id="sql" style="display:none"><code></code></pre>
+
+  <details id="reasoning-block" style="display:none">
+    <summary>Detalhes técnicos (raciocínio e schema linking)</summary>
+    <p id="reasoning"></p>
+    <p id="schema-link"></p>
+  </details>
 
   <script>
     const sessionId = crypto.randomUUID();
@@ -76,13 +103,52 @@
         }
 
         answerEl.textContent = body.answer;
-        metaEl.textContent = `Modelo: ${body.model_used}` +
-          (body.sql_used?.length ? ` · SQL: ${body.sql_used.join(" | ")}` : "");
 
+        const confidenceHtml = formatConfidence(body.confidence);
+        metaEl.innerHTML = `Modelo: ${body.model_used}` +
+          (body.sql_used?.length ? ` · SQL: ${body.sql_used.length} consulta(s)` : "") +
+          (confidenceHtml ? ` · ${confidenceHtml}` : "");
+
+        renderSqlIfPresent(body.sql_used);
+        renderReasoningIfPresent(body.reasoning, body.schema_link);
         renderChartIfApplicable(body.data);
       } catch (err) {
         answerEl.textContent = "Erro ao chamar a API: " + err;
       }
+    }
+
+    function formatConfidence(confidence) {
+      if (typeof confidence !== "number") return "";
+      const pct = Math.round(confidence * 100);
+      const level = confidence >= 0.75 ? "alta" : confidence >= 0.4 ? "media" : "baixa";
+      return `<span id="confidence" class="${level}">Confiança: ${pct}%</span>`;
+    }
+
+    function renderSqlIfPresent(sqlUsed) {
+      const sqlEl = document.getElementById("sql");
+      if (!Array.isArray(sqlUsed) || sqlUsed.length === 0) {
+        sqlEl.style.display = "none";
+        return;
+      }
+      sqlEl.querySelector("code").textContent = sqlUsed.join("\n\n");
+      sqlEl.style.display = "block";
+    }
+
+    function renderReasoningIfPresent(reasoning, schemaLink) {
+      const block = document.getElementById("reasoning-block");
+      const reasoningEl = document.getElementById("reasoning");
+      const schemaLinkEl = document.getElementById("schema-link");
+
+      if (!reasoning && !schemaLink) {
+        block.style.display = "none";
+        return;
+      }
+
+      reasoningEl.textContent = reasoning ? `Raciocínio: ${reasoning}` : "";
+      schemaLinkEl.textContent = schemaLink?.tables?.length
+        ? `Schema linking — tabelas: ${schemaLink.tables.join(", ")}`
+        : "";
+      block.style.display = "block";
     }
 
     function renderChartIfApplicable(data) {
