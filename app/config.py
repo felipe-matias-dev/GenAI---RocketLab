@@ -25,3 +25,10 @@ MODEL_CHAIN = [
 MAX_TOOL_ITERATIONS = 6
 MAX_SESSION_TURNS = 6
 DEFAULT_SQL_ROW_LIMIT = 500
+
+# Timeout por chamada ao OpenRouter. Sem isso, o SDK da OpenAI usa 600s de
+# timeout padrão por chamada — um modelo ":free" congestionado prende a
+# requisição por minutos antes de escalar para o próximo da cadeia. 20s é
+# tempo suficiente para uma resposta normal, e curto o bastante para que o
+# fallback (ModelUnavailable) entre em ação rápido quando o modelo travar.
+LLM_REQUEST_TIMEOUT_SECONDS = 20
