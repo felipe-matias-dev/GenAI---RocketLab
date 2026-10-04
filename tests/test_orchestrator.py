@@ -442,7 +442,10 @@ def test_system_prompt_includes_schema_link_hint(empty_cache):
 
     system_message = captured_messages[0][0]
     assert system_message["role"] == "system"
-    assert "dim_genres" in system_message["content"]
+    # "dim_genres" por si só já apareceria na seção de schema completo
+    # independente da dica — a frase rotulada só pode vir da injeção da
+    # dica de schema linking, provando que ela de fato foi usada.
+    assert "Tabelas sugeridas: dim_genres" in system_message["content"]
 
 
 def test_schema_linker_returning_malformed_shape_does_not_crash_ask(empty_cache):
