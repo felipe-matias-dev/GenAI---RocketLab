@@ -214,7 +214,23 @@ class Orchestrator:
             finalize_result = None
 
             for tool_call in message.tool_calls:
-                arguments = json.loads(tool_call.function.arguments)
+                try:
+                    arguments = json.loads(tool_call.function.arguments)
+                except json.JSONDecodeError:
+                    # Argumentos quebrados de um modelo instável não podem
+                    # propagar como exceção (viraria 500 sem escalonamento)
+                    # — tratamos como qualquer outro erro de tool.
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(
+                                {"ok": False, "error": "argumentos da tool não são JSON válido."},
+                                ensure_ascii=False,
+                            ),
+                        }
+                    )
+                    continue
 
                 if tool_call.function.name == "finalize_answer":
                     answer = arguments.get("answer")

@@ -24,6 +24,16 @@ def make_tool_call(call_id, name, arguments):
     )
 
 
+def make_raw_tool_call(call_id, name, raw_arguments):
+    # Para simular um modelo instável que manda uma string que não é JSON
+    # válido no campo arguments — make_tool_call sempre serializa um dict
+    # válido, isso aqui permite testar o caminho de erro.
+    return SimpleNamespace(
+        id=call_id,
+        function=SimpleNamespace(name=name, arguments=raw_arguments),
+    )
+
+
 def _stub_schema_linker(question):
     return {"tables": [], "columns": [], "reasoning": "stub"}
 
@@ -186,6 +196,27 @@ def test_finalize_answer_alongside_execute_sql_in_same_turn_still_captures_sql_u
     assert result["reasoning"] == "ok"
     assert result["sql_used"] == ["SELECT titulo FROM dim_movies"]
     assert result["data"] == [{"titulo": "Filme X"}]
+
+
+def test_malformed_tool_call_arguments_do_not_crash_and_turn_continues(empty_cache):
+    # Um modelo instável pode mandar um JSON quebrado nos argumentos de uma
+    # tool_call. Isso não pode propagar como exceção (viraria 500 sem
+    # escalonamento) — deve virar um erro recuperável, como qualquer outra
+    # falha de tool, deixando as outras tool_calls do mesmo turno seguirem.
+    def complete_fn(model, messages, tools):
+        return make_response(
+            tool_calls=[
+                make_raw_tool_call("call-1", "execute_sql", "{isso nao é json"),
+                make_tool_call(
+                    "call-2", "finalize_answer", {"answer": "ok", "confidence": 0.5, "reasoning": "r"}
+                ),
+            ]
+        )
+
+    orchestrator = build_orchestrator(complete_fn, cache=empty_cache)
+    result = orchestrator.ask("pergunta")
+
+    assert result["answer"] == "ok"
 
 
 def test_finalize_answer_never_reaches_tool_executor(empty_cache):
