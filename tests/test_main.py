@@ -50,6 +50,30 @@ def test_ask_response_includes_new_fields_when_present(client, monkeypatch):
     assert response.json() == fake_result
 
 
+def test_ask_response_preserves_data_null_but_omits_absent_optional_fields(client, monkeypatch):
+    # response_model_exclude_none=True omitiria TODO campo None, incluindo
+    # `data` (que legitimamente pode ser null quando nenhuma SQL foi
+    # executada) — só confidence/reasoning/schema_link devem ser omitidos
+    # quando ausentes; `data: null` precisa continuar explícito no JSON.
+    fake_result = {
+        "answer": "Resposta sem SQL.",
+        "sql_used": [],
+        "data": None,
+        "model_used": "model-a:free",
+    }
+    monkeypatch.setattr(main._orchestrator, "ask", lambda question, session_id=None: fake_result)
+
+    response = client.post("/ask", json={"question": "pergunta de teste"})
+    body = response.json()
+
+    assert response.status_code == 200
+    assert "data" in body
+    assert body["data"] is None
+    assert "confidence" not in body
+    assert "reasoning" not in body
+    assert "schema_link" not in body
+
+
 def test_ask_returns_503_when_all_models_fail(client, monkeypatch):
     def raise_failure(question, session_id=None):
         raise AllModelsFailedError("nenhum modelo respondeu")

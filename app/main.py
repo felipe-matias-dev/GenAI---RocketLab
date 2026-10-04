@@ -35,12 +35,32 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/ask", response_model=AskResponse, response_model_exclude_none=True)
+_OPTIONAL_FIELDS_OMITTED_WHEN_NONE = ("confidence", "reasoning", "schema_link")
+
+
+@app.post("/ask")
 def ask(request: AskRequest) -> dict:
+    """Validamos contra `AskResponse` manualmente (abaixo) em vez de usar
+    `response_model=AskResponse` no decorator: o `response_model` do
+    FastAPI reaplicaria a serialização padrão (preenchendo de volta os
+    campos ausentes com `None`) por cima de qualquer dict que a função
+    devolvesse, anulando a omissão seletiva feita aqui."""
     try:
-        return _orchestrator.ask(request.question, session_id=request.session_id)
+        result = _orchestrator.ask(request.question, session_id=request.session_id)
     except AllModelsFailedError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    # Omitimos apenas os 3 campos novos quando ausentes (para o payload
+    # antigo continuar idêntico) — response_model_exclude_none faria isso
+    # para QUALQUER campo None, o que faria `data` (que legitimamente pode
+    # ser null) desaparecer do JSON em vez de aparecer como `null`.
+    validated = AskResponse(**result)
+    payload = validated.model_dump(exclude=set(_OPTIONAL_FIELDS_OMITTED_WHEN_NONE))
+    for field in _OPTIONAL_FIELDS_OMITTED_WHEN_NONE:
+        value = getattr(validated, field)
+        if value is not None:
+            payload[field] = value
+    return payload
 
 
 if STATIC_DIR.exists():
