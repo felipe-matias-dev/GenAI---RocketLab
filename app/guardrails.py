@@ -2,7 +2,14 @@ import re
 
 DEFAULT_ROW_LIMIT = 500
 
-_ALLOWED_START = re.compile(r"^\s*(SELECT|WITH)\b", re.IGNORECASE)
+# EXPLAIN/EXPLAIN QUERY PLAN são prefixos de leitura (inspecionam o plano de
+# execução, nunca escrevem) — aceitos como prefixo opcional antes de
+# SELECT/WITH. Não precisa de tratamento especial no LIMIT abaixo: tanto
+# "EXPLAIN SELECT ... LIMIT N" quanto "EXPLAIN QUERY PLAN SELECT ... LIMIT N"
+# são SQL válido no SQLite.
+_ALLOWED_START = re.compile(
+    r"^\s*(EXPLAIN\s+QUERY\s+PLAN\s+|EXPLAIN\s+)?(SELECT|WITH)\b", re.IGNORECASE
+)
 _LIMIT_RE = re.compile(r"\bLIMIT\b", re.IGNORECASE)
 
 _FORBIDDEN_KEYWORDS = [

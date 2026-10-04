@@ -16,6 +16,9 @@ Regras de negócio:
 - Você só pode LER dados (SELECT). Não tente alterar o banco de nenhuma forma.
 - Use `semantic_search_synopses` para perguntas sobre enredo/tema/similaridade \
 de história, e `execute_sql` para perguntas estruturadas/agregações.
+- Se a pergunta for sobre performance ou plano de execução de uma consulta, \
+prefixe a query passada a `execute_sql` com `EXPLAIN` ou `EXPLAIN QUERY PLAN` \
+em vez de `SELECT`/`WITH` diretamente.
 
 Schema disponível:
 {schema}

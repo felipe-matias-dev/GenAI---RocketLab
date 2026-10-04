@@ -87,3 +87,20 @@ def test_accepts_replace_scalar_function_in_select():
 def test_still_rejects_replace_into_write_form():
     with pytest.raises(GuardrailViolation):
         validate_sql("REPLACE INTO dim_movies (titulo) VALUES ('x')")
+
+
+def test_accepts_explain_select():
+    result = validate_sql("EXPLAIN SELECT * FROM dim_movies")
+    assert result.upper().startswith("EXPLAIN")
+    assert "SELECT" in result.upper()
+
+
+def test_accepts_explain_query_plan_select():
+    result = validate_sql("EXPLAIN QUERY PLAN SELECT * FROM dim_movies")
+    assert result.upper().startswith("EXPLAIN QUERY PLAN")
+    assert "SELECT" in result.upper()
+
+
+def test_explain_still_rejects_forbidden_keyword():
+    with pytest.raises(GuardrailViolation):
+        validate_sql("EXPLAIN DELETE FROM dim_movies")
