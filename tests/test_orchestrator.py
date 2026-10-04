@@ -34,7 +34,7 @@ def make_raw_tool_call(call_id, name, raw_arguments):
     )
 
 
-def _stub_schema_linker(question):
+def _stub_schema_linker(question, history):
     return {"tables": [], "columns": [], "reasoning": "stub"}
 
 
@@ -420,7 +420,7 @@ def test_schema_link_included_in_result(empty_cache):
         return make_response(content="42 filmes no total.")
 
     orchestrator = build_orchestrator(
-        complete_fn, cache=empty_cache, schema_linker=lambda question: fixed_link
+        complete_fn, cache=empty_cache, schema_linker=lambda question, history: fixed_link
     )
     result = orchestrator.ask("Quantos filmes existem?")
 
@@ -436,7 +436,7 @@ def test_system_prompt_includes_schema_link_hint(empty_cache):
         return make_response(content="resposta")
 
     orchestrator = build_orchestrator(
-        complete_fn, cache=empty_cache, schema_linker=lambda question: fixed_link
+        complete_fn, cache=empty_cache, schema_linker=lambda question, history: fixed_link
     )
     orchestrator.ask("pergunta")
 
@@ -452,7 +452,7 @@ def test_schema_linker_returning_malformed_shape_does_not_crash_ask(empty_cache)
     # Um schema_linker customizado pode devolver algo fora do formato
     # esperado sem passar por app.schema_linking.link_schema (que já sanea
     # isso) — _format_schema_link precisa ser defensivo por conta própria.
-    def malformed_schema_linker(question):
+    def malformed_schema_linker(question, history):
         return {"tables": None, "columns": [{"not": "a string"}], "reasoning": 123}
 
     def complete_fn(model, messages, tools):
@@ -466,8 +466,41 @@ def test_schema_linker_returning_malformed_shape_does_not_crash_ask(empty_cache)
     assert result["answer"] == "resposta"
 
 
+def test_schema_linker_receives_session_history(empty_cache):
+    memory = SessionMemory(max_turns=6)
+    captured = []
+
+    def schema_linker(question, history):
+        captured.append((question, list(history)))
+        return {"tables": [], "columns": [], "reasoning": "r"}
+
+    def complete_fn(model, messages, tools):
+        return make_response(content="resposta")
+
+    orchestrator = Orchestrator(
+        complete_fn=complete_fn,
+        tool_executor=lambda name, args: {"ok": True, "rows": []},
+        memory=memory,
+        cache=empty_cache,
+        model_chain=MODEL_CHAIN,
+        max_iterations=3,
+        schema_linker=schema_linker,
+    )
+    orchestrator.ask("primeira pergunta", session_id="s1")
+    orchestrator.ask("e o segundo?", session_id="s1")
+
+    assert captured[0] == ("primeira pergunta", [])
+    assert captured[1] == (
+        "e o segundo?",
+        [
+            {"role": "user", "content": "primeira pergunta"},
+            {"role": "assistant", "content": "resposta"},
+        ],
+    )
+
+
 def test_schema_linker_failure_falls_back_gracefully(empty_cache):
-    def failing_schema_linker(question):
+    def failing_schema_linker(question, history):
         raise ValueError("resposta não é JSON válido")
 
     def complete_fn(model, messages, tools):

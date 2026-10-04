@@ -4,7 +4,7 @@ from app.db import get_schema_description
 from app.llm import complete, get_client
 from app.memory import SessionMemory
 from app.orchestrator import Orchestrator
-from app.schema_linking import link_schema
+from app.schema_linking import link_schema_with_model_chain
 from app.tools import execute_tool
 
 
@@ -15,8 +15,10 @@ def build_orchestrator() -> Orchestrator:
     def _complete_fn(model: str, messages: list[dict], tools: list[dict]):
         return complete(client, model, messages, tools)
 
-    def _schema_linker(question: str) -> dict:
-        return link_schema(_complete_fn, MODEL_CHAIN[0], question, get_schema_description())
+    def _schema_linker(question: str, history: list[dict]) -> dict:
+        return link_schema_with_model_chain(
+            _complete_fn, MODEL_CHAIN, question, get_schema_description(), history=history
+        )
 
     return Orchestrator(
         complete_fn=_complete_fn,

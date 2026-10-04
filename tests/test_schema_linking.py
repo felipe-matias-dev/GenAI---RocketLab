@@ -2,7 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.schema_linking import link_schema
+from app.orchestrator import ModelUnavailable
+from app.schema_linking import link_schema, link_schema_with_model_chain
 
 
 def make_response(content):
@@ -86,3 +87,48 @@ def test_link_schema_coerces_non_string_reasoning():
     result = link_schema(complete_fn, "model-a:free", "pergunta", "schema")
 
     assert result["reasoning"] == "42"
+
+
+def test_link_schema_includes_history_between_system_and_question(monkeypatch):
+    captured = {}
+
+    def complete_fn(model, messages, tools):
+        captured["messages"] = messages
+        return make_response('{"tables": [], "columns": [], "reasoning": "r"}')
+
+    history = [
+        {"role": "user", "content": "pergunta anterior"},
+        {"role": "assistant", "content": "resposta anterior"},
+    ]
+
+    link_schema(complete_fn, "model-a:free", "e o segundo?", "schema", history=history)
+
+    messages = captured["messages"]
+    assert messages[0]["role"] == "system"
+    assert messages[1:3] == history
+    assert messages[-1] == {"role": "user", "content": "e o segundo?"}
+
+
+def test_link_schema_with_model_chain_escalates_on_model_unavailable():
+    calls = []
+
+    def complete_fn(model, messages, tools):
+        calls.append(model)
+        if model == "model-a:free":
+            raise ModelUnavailable("429 upstream")
+        return make_response('{"tables": ["dim_movies"], "columns": [], "reasoning": "r"}')
+
+    result = link_schema_with_model_chain(
+        complete_fn, ["model-a:free", "model-b:free"], "pergunta", "schema"
+    )
+
+    assert result["tables"] == ["dim_movies"]
+    assert calls == ["model-a:free", "model-b:free"]
+
+
+def test_link_schema_with_model_chain_raises_when_all_models_fail():
+    def complete_fn(model, messages, tools):
+        raise ModelUnavailable("429 upstream")
+
+    with pytest.raises(ModelUnavailable):
+        link_schema_with_model_chain(complete_fn, ["model-a:free", "model-b:free"], "pergunta", "schema")

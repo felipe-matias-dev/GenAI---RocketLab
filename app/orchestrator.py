@@ -59,7 +59,7 @@ class AllModelsFailedError(Exception):
 
 CompleteFn = Callable[[str, list[dict], list[dict]], object]
 ToolExecutor = Callable[[str, dict], dict]
-SchemaLinker = Callable[[str], dict]
+SchemaLinker = Callable[[str, list[dict]], dict]
 
 
 def _format_schema_link(schema_link: Optional[dict]) -> str:
@@ -125,7 +125,7 @@ class Orchestrator:
                 return cached
 
         try:
-            schema_link = self._schema_linker(question)
+            schema_link = self._schema_linker(question, history)
         except Exception:
             # O schema linking é só uma dica — qualquer falha (modelo fora
             # do ar, JSON inválido) cai para o schema completo em vez de
