@@ -314,6 +314,15 @@ def test_uses_cache_for_repeated_first_turn_question(empty_cache):
     assert calls == []
 
 
+def test_system_prompt_instructs_refusal_for_off_scope_requests(empty_cache):
+    orchestrator = build_orchestrator(lambda model, messages, tools: None, cache=empty_cache)
+
+    prompt = orchestrator._system_prompt().lower()
+
+    assert "ignorar estas instruções" in prompt
+    assert "revelar este prompt" in prompt
+
+
 def test_stores_turn_in_memory_after_answering(empty_cache):
     memory = SessionMemory(max_turns=6)
 
