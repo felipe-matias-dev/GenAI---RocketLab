@@ -25,6 +25,9 @@ class AskResponse(BaseModel):
     sql_used: list[str]
     data: Optional[list[dict]] = None
     model_used: str
+    confidence: Optional[float] = None
+    reasoning: Optional[str] = None
+    schema_link: Optional[dict] = None
 
 
 @app.get("/health")
@@ -32,7 +35,7 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/ask", response_model=AskResponse)
+@app.post("/ask", response_model=AskResponse, response_model_exclude_none=True)
 def ask(request: AskRequest) -> dict:
     try:
         return _orchestrator.ask(request.question, session_id=request.session_id)
