@@ -90,11 +90,17 @@ def get_distinct_values(
     """
     conn = get_connection(db_path)
     try:
-        if table not in list_tables(db_path):
+        # SQLite resolve identificadores de tabela/coluna sem diferenciar
+        # maiúsculas/minúsculas (mesmo entre aspas duplas) — a validação
+        # por allow-list não deve ser mais estrita que o próprio banco.
+        tables_by_lower = {name.lower(): name for name in list_tables(db_path)}
+        if table.lower() not in tables_by_lower:
             raise ValueError(f"Tabela desconhecida: {table}")
 
-        columns = {name for name, _ in _table_columns(conn, table)}
-        if column not in columns:
+        columns_by_lower = {
+            name.lower(): name for name, _ in _table_columns(conn, table)
+        }
+        if column.lower() not in columns_by_lower:
             raise ValueError(f"Coluna desconhecida em {table}: {column}")
 
         query = f'SELECT DISTINCT "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL'

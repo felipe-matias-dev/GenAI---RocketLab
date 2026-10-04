@@ -44,6 +44,14 @@ def test_get_distinct_values_sets_truncated_flag_when_limit_reached():
     assert result["truncated"] is True
 
 
+def test_get_distinct_values_is_case_insensitive_for_table_and_column():
+    # SQLite resolve identificadores de tabela/coluna sem diferenciar
+    # maiúsculas/minúsculas mesmo entre aspas duplas — a validação por
+    # allow-list não devia ser mais estrita que o próprio banco.
+    result = db.get_distinct_values("DIM_GENRES", "NOME_GENERO")
+    assert "Science Fiction" in result["values"]
+
+
 def test_get_distinct_values_rejects_unknown_table():
     with pytest.raises(ValueError):
         db.get_distinct_values("tabela_que_nao_existe", "nome_genero")
