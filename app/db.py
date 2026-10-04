@@ -48,6 +48,26 @@ def get_schema_description(db_path: str = str(DB_PATH)) -> str:
         conn.close()
 
 
+@lru_cache(maxsize=1)
+def get_known_identifiers(db_path: str = str(DB_PATH)) -> dict:
+    """Conjunto de tabelas e colunas reais do schema (nomes, não valores).
+
+    Usado para filtrar a dica de schema linking (ver app/orchestrator.py)
+    contra identificadores que realmente existem, em vez de repassar texto
+    sem validação vindo do modelo para o prompt de sistema.
+    """
+    conn = get_connection(Path(db_path))
+    try:
+        tables = set(list_tables(Path(db_path)))
+        columns = set()
+        for table in tables:
+            for name, _ in _table_columns(conn, table):
+                columns.add(name)
+        return {"tables": tables, "columns": columns}
+    finally:
+        conn.close()
+
+
 def get_distinct_values(
     table: str,
     column: str,

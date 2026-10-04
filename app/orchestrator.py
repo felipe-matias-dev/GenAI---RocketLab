@@ -2,7 +2,7 @@ import json
 from typing import Callable, Optional
 
 from app.cache import ResponseCache
-from app.db import get_schema_description
+from app.db import get_known_identifiers, get_schema_description
 from app.memory import SessionMemory
 from app.tools import TOOL_SCHEMAS
 
@@ -63,14 +63,24 @@ SchemaLinker = Callable[[str, list[dict]], dict]
 
 
 def _format_schema_link(schema_link: Optional[dict]) -> str:
+    """Formata a dica de schema linking para o prompt de sistema.
+
+    `reasoning` é deliberadamente excluído daqui: é texto livre gerado a
+    partir da pergunta do usuário, então injetá-lo de volta no prompt de
+    sistema seria uma superfície de segunda ordem para prompt injection
+    (continua disponível, sem filtrar, no campo `schema_link.reasoning` da
+    resposta da API — lá é só um dado para o cliente, nunca volta a ser
+    instrução para o próprio modelo). `tables`/`columns` são filtradas
+    contra identificadores reais do schema (allow-list) pelo mesmo motivo.
+    """
     if not schema_link:
         return "(não disponível — use o schema completo)"
-    tables = ", ".join(_safe_str_list(schema_link.get("tables"))) or "(nenhuma)"
-    columns = ", ".join(_safe_str_list(schema_link.get("columns"))) or "(nenhuma)"
-    reasoning = schema_link.get("reasoning", "")
-    if not isinstance(reasoning, str):
-        reasoning = str(reasoning) if reasoning is not None else ""
-    return f"Tabelas sugeridas: {tables}. Colunas sugeridas: {columns}. Raciocínio: {reasoning}"
+    known = get_known_identifiers()
+    tables = [t for t in _safe_str_list(schema_link.get("tables")) if t in known["tables"]]
+    columns = [c for c in _safe_str_list(schema_link.get("columns")) if c in known["columns"]]
+    tables_text = ", ".join(tables) or "(nenhuma)"
+    columns_text = ", ".join(columns) or "(nenhuma)"
+    return f"Tabelas sugeridas: {tables_text}. Colunas sugeridas: {columns_text}."
 
 
 def _safe_str_list(value) -> list[str]:

@@ -54,6 +54,13 @@ def test_get_distinct_values_rejects_unknown_column():
         db.get_distinct_values("dim_genres", "coluna_que_nao_existe")
 
 
+def test_get_known_identifiers_includes_real_tables_and_columns():
+    known = db.get_known_identifiers()
+    assert "dim_movies" in known["tables"]
+    assert "titulo" in known["columns"]
+    assert "tabela_que_nao_existe" not in known["tables"]
+
+
 def test_connection_is_read_only_at_driver_level():
     conn = db.get_connection()
     try:
