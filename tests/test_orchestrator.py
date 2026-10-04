@@ -24,7 +24,13 @@ def make_tool_call(call_id, name, arguments):
     )
 
 
-def build_orchestrator(complete_fn, cache, tool_executor=None, max_iterations=3):
+def _stub_schema_linker(question):
+    return {"tables": [], "columns": [], "reasoning": "stub"}
+
+
+def build_orchestrator(
+    complete_fn, cache, tool_executor=None, max_iterations=3, schema_linker=None
+):
     return Orchestrator(
         complete_fn=complete_fn,
         tool_executor=tool_executor or (lambda name, args: {"ok": True, "rows": []}),
@@ -32,6 +38,7 @@ def build_orchestrator(complete_fn, cache, tool_executor=None, max_iterations=3)
         cache=cache,
         model_chain=MODEL_CHAIN,
         max_iterations=max_iterations,
+        schema_linker=schema_linker or _stub_schema_linker,
     )
 
 
@@ -144,6 +151,7 @@ def test_finalize_answer_tool_call_ends_turn_with_confidence_and_reasoning(empty
         "model_used": MODEL_A,
         "confidence": 0.9,
         "reasoning": "porque sim",
+        "schema_link": {"tables": [], "columns": [], "reasoning": "stub"},
     }
     # O loop termina imediatamente ao ver finalize_answer — não há segunda
     # rodada de complete_fn esperando uma resposta de texto livre.
@@ -323,6 +331,54 @@ def test_system_prompt_instructs_refusal_for_off_scope_requests(empty_cache):
     assert "revelar este prompt" in prompt
 
 
+def test_schema_link_included_in_result(empty_cache):
+    fixed_link = {"tables": ["dim_movies"], "columns": ["titulo"], "reasoning": "r"}
+
+    def complete_fn(model, messages, tools):
+        return make_response(content="42 filmes no total.")
+
+    orchestrator = build_orchestrator(
+        complete_fn, cache=empty_cache, schema_linker=lambda question: fixed_link
+    )
+    result = orchestrator.ask("Quantos filmes existem?")
+
+    assert result["schema_link"] == fixed_link
+
+
+def test_system_prompt_includes_schema_link_hint(empty_cache):
+    fixed_link = {"tables": ["dim_genres"], "columns": [], "reasoning": "r"}
+    captured_messages = []
+
+    def complete_fn(model, messages, tools):
+        captured_messages.append(messages)
+        return make_response(content="resposta")
+
+    orchestrator = build_orchestrator(
+        complete_fn, cache=empty_cache, schema_linker=lambda question: fixed_link
+    )
+    orchestrator.ask("pergunta")
+
+    system_message = captured_messages[0][0]
+    assert system_message["role"] == "system"
+    assert "dim_genres" in system_message["content"]
+
+
+def test_schema_linker_failure_falls_back_gracefully(empty_cache):
+    def failing_schema_linker(question):
+        raise ValueError("resposta não é JSON válido")
+
+    def complete_fn(model, messages, tools):
+        return make_response(content="resposta")
+
+    orchestrator = build_orchestrator(
+        complete_fn, cache=empty_cache, schema_linker=failing_schema_linker
+    )
+    result = orchestrator.ask("pergunta")
+
+    assert result["answer"] == "resposta"
+    assert result["schema_link"] is None
+
+
 def test_stores_turn_in_memory_after_answering(empty_cache):
     memory = SessionMemory(max_turns=6)
 
@@ -336,6 +392,7 @@ def test_stores_turn_in_memory_after_answering(empty_cache):
         cache=empty_cache,
         model_chain=MODEL_CHAIN,
         max_iterations=3,
+        schema_linker=_stub_schema_linker,
     )
     orchestrator.ask("pergunta de sessão", session_id="s1")
 

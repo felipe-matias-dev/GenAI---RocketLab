@@ -35,8 +35,13 @@ do catálogo de filmes da CineData Analytics, chame `finalize_answer` com \
 `confidence` 0.0 e uma recusa educada explicando que você só responde \
 perguntas sobre o catálogo de filmes.
 
-Schema disponível:
+Schema disponível (completo):
 {schema}
+
+Dica de schema linking (sugestão, não é uma restrição — use o schema \
+completo acima se precisar de mais tabelas, especialmente para JOINs com \
+tabelas-ponte que a dica não tenha incluído):
+{relevant_schema}
 """
 
 
@@ -50,6 +55,16 @@ class AllModelsFailedError(Exception):
 
 CompleteFn = Callable[[str, list[dict], list[dict]], object]
 ToolExecutor = Callable[[str, dict], dict]
+SchemaLinker = Callable[[str], dict]
+
+
+def _format_schema_link(schema_link: Optional[dict]) -> str:
+    if not schema_link:
+        return "(não disponível — use o schema completo)"
+    tables = ", ".join(schema_link.get("tables", [])) or "(nenhuma)"
+    columns = ", ".join(schema_link.get("columns", [])) or "(nenhuma)"
+    reasoning = schema_link.get("reasoning", "")
+    return f"Tabelas sugeridas: {tables}. Colunas sugeridas: {columns}. Raciocínio: {reasoning}"
 
 
 def _coerce_confidence(value) -> Optional[float]:
@@ -75,6 +90,7 @@ class Orchestrator:
         cache: ResponseCache,
         model_chain: list[str],
         max_iterations: int,
+        schema_linker: SchemaLinker,
     ):
         self._complete_fn = complete_fn
         self._tool_executor = tool_executor
@@ -82,6 +98,7 @@ class Orchestrator:
         self._cache = cache
         self._model_chain = model_chain
         self._max_iterations = max_iterations
+        self._schema_linker = schema_linker
 
     def ask(self, question: str, session_id: Optional[str] = None) -> dict:
         history = self._memory.get_history(session_id) if session_id else []
@@ -91,11 +108,22 @@ class Orchestrator:
             if cached is not None:
                 return cached
 
-        messages = [{"role": "system", "content": self._system_prompt()}]
+        try:
+            schema_link = self._schema_linker(question)
+        except Exception:
+            # O schema linking é só uma dica — qualquer falha (modelo fora
+            # do ar, JSON inválido) cai para o schema completo em vez de
+            # travar a pergunta.
+            schema_link = None
+
+        messages = [
+            {"role": "system", "content": self._system_prompt(_format_schema_link(schema_link))}
+        ]
         messages.extend(history)
         messages.append({"role": "user", "content": question})
 
         result = self._run_model_chain(messages)
+        result["schema_link"] = schema_link
 
         if session_id:
             self._memory.add_turn(session_id, "user", question)
@@ -106,8 +134,10 @@ class Orchestrator:
 
         return result
 
-    def _system_prompt(self) -> str:
-        return SYSTEM_PROMPT_TEMPLATE.format(schema=get_schema_description())
+    def _system_prompt(self, relevant_schema: str = "(não disponível — use o schema completo)") -> str:
+        return SYSTEM_PROMPT_TEMPLATE.format(
+            schema=get_schema_description(), relevant_schema=relevant_schema
+        )
 
     def _run_model_chain(self, messages: list[dict]) -> dict:
         for model in self._model_chain:
