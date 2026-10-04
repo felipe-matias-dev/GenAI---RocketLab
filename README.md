@@ -7,13 +7,30 @@ segurança. Feito para a atividade GenAI do Rocket Lab 2026 (Visagio).
 
 ## Arquitetura
 
-- **FastAPI** expõe `POST /ask` (e uma UI estática mínima em `/`).
+- **FastAPI** expõe `POST /ask` (e uma UI estática em `/` com painel de
+  detalhes técnicos — confiança, SQL final e raciocínio).
 - **Loop de tool-calling manual** (sem LangChain) usando o SDK `openai`
-  apontado para o OpenRouter (`app/orchestrator.py`).
-- **Guardrails** (`app/guardrails.py`): só SELECT/WITH, uma única
+  apontado para o OpenRouter (`app/orchestrator.py`), concluído por uma
+  tool obrigatória `finalize_answer(answer, confidence, reasoning)` — o
+  próprio modelo reporta sua confiança (0.0–1.0) e o raciocínio que levou à
+  resposta, em vez de só devolver texto livre.
+- **Schema linking leve** (`app/schema_linking.py`): antes do loop
+  principal, uma chamada extra ao mesmo client OpenRouter identifica as
+  tabelas/colunas provavelmente relevantes para a pergunta. É só uma dica
+  injetada no prompt (exposta em `schema_link` na resposta) — nunca uma
+  restrição nem uma fronteira de segurança; se falhar, cai para o schema
+  completo sem travar a pergunta.
+- **Guardrails** (`app/guardrails.py`): só SELECT/WITH/EXPLAIN, uma única
   instrução, LIMIT obrigatório — reforçado por uma conexão SQLite aberta em
   **modo somente-leitura no nível do SO** (`app/db.py`), então mesmo uma
-  falha na validação não permitiria escrever no banco.
+  falha na validação não permitiria escrever no banco. O prompt de sistema
+  também instrui o modelo a recusar (via `finalize_answer` com `confidence
+  0.0`) pedidos para ignorar instruções, mudar de persona ou sair do
+  domínio do catálogo de filmes.
+- **Descoberta de valores** (`app/tools.py`/`app/db.py`): a tool
+  `get_distinct_values` deixa o modelo checar a grafia exata de valores de
+  texto (gênero, diretor, produtora) antes de montar um filtro WHERE, em
+  vez de assumir a grafia que o usuário usou.
 - **Cache de respostas** (`app/cache.py`): pergunta normalizada → resposta,
   usado apenas para perguntas sem histórico de sessão, para não gastar a
   cota diária do OpenRouter repetindo perguntas.
@@ -96,15 +113,34 @@ Resposta:
   "answer": "...",
   "sql_used": ["SELECT ... LIMIT 500"],
   "data": [...],
-  "model_used": "nvidia/nemotron-3.5-lightning:free"
+  "model_used": "nvidia/nemotron-3.5-lightning:free",
+  "confidence": 0.9,
+  "reasoning": "...",
+  "schema_link": {"tables": ["dim_movies"], "columns": ["receita_brl"], "reasoning": "..."}
 }
 ```
 
+`confidence`, `reasoning` e `schema_link` são omitidos da resposta quando
+`null` (ex.: no caminho de fallback para um modelo que não chamou
+`finalize_answer`, ou quando o schema linking falhou).
+
+## Rodando via CLI
+
+Para perguntar direto no terminal, sem subir o servidor HTTP:
+
+```bash
+python -m app.cli
+```
+
+Reaproveita a mesma fiação de produção (`app/factory.py`) usada pela API —
+útil para testar rapidamente sem abrir o navegador.
+
 ## Rodando a avaliação
 
-`eval/run_eval.py` roda um conjunto fixo de ~17 perguntas (cobrindo as 5
-categorias do enunciado, mais casos de guardrail e busca semântica) contra
-o agente real e gera `eval/results.md`.
+`eval/run_eval.py` roda um conjunto fixo de ~20 perguntas (cobrindo as 5
+categorias do enunciado, mais casos de guardrail/jailbreak, busca
+semântica, `EXPLAIN` e `get_distinct_values`) contra o agente real e gera
+`eval/results.md` com confiança, raciocínio e schema linking por pergunta.
 
 ```bash
 python -m eval.run_eval
@@ -136,17 +172,20 @@ moderação — não faz parte da suíte `pytest`.
 ```
 app/
   main.py          FastAPI: POST /ask, GET /health, serve static/
-  factory.py        monta o Orchestrator de produção
-  config.py          variáveis de ambiente e constantes
-  db.py               conexão SQLite somente-leitura + introspecção de schema
-  guardrails.py       validação de SQL
-  llm.py               cliente OpenRouter + conversão de erros de infra
-  tools.py              schemas de tools (execute_sql, semantic_search_synopses)
-  orchestrator.py       loop de tool-calling, memória, escalonamento por falha
-  memory.py              histórico de conversa por sessão
-  cache.py                cache de resposta por pergunta normalizada
-  embeddings.py            índice local de embeddings sobre as sinopses
-static/index.html    UI mínima (pergunta + resposta + gráfico)
+  cli.py            REPL interativo (python -m app.cli)
+  factory.py         monta o Orchestrator de produção
+  config.py            variáveis de ambiente e constantes
+  db.py                 conexão SQLite somente-leitura + introspecção de schema
+  guardrails.py          validação de SQL (SELECT/WITH/EXPLAIN)
+  llm.py                   cliente OpenRouter + conversão de erros de infra
+  tools.py                  schemas de tools (execute_sql, semantic_search_synopses,
+                             get_distinct_values, finalize_answer)
+  orchestrator.py            loop de tool-calling, memória, escalonamento por falha
+  schema_linking.py           chamada leve de schema linking (dica de tabelas/colunas)
+  memory.py                     histórico de conversa por sessão
+  cache.py                       cache de resposta por pergunta normalizada
+  embeddings.py                   índice local de embeddings sobre as sinopses
+static/index.html    UI (pergunta + resposta + gráfico + painel de detalhes técnicos)
 eval/                 conjunto de avaliação e gerador de relatório
 tests/                suíte pytest (sem rede — roda sempre)
 data/                 cinerocket.db + cache/embeddings gerados (gitignored)
