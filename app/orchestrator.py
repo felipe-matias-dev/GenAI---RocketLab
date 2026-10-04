@@ -22,7 +22,11 @@ em vez de `SELECT`/`WITH` diretamente.
 - Antes de filtrar por uma coluna de texto livre (nome de gênero, diretor, \
 ator ou produtora) em uma cláusula WHERE, chame `get_distinct_values` para \
 confirmar a grafia exata usada no banco — o valor que o usuário mencionou \
-pode não corresponder exatamente (ex.: "Sci-Fi" vs "Science Fiction").
+pode não corresponder exatamente (ex.: "Sci-Fi" vs "Science Fiction"). Para \
+colunas de alta cardinalidade (nome de pessoa, produtora), SEMPRE passe o \
+parâmetro `contains` com um trecho do nome — sem isso a lista é cortada e \
+pode nem conter o valor procurado (`truncated: true` no resultado avisa \
+disso).
 
 Para concluir sua resposta:
 - Você DEVE sempre chamar a tool `finalize_answer` para encerrar o turno, \
@@ -61,10 +65,22 @@ SchemaLinker = Callable[[str], dict]
 def _format_schema_link(schema_link: Optional[dict]) -> str:
     if not schema_link:
         return "(não disponível — use o schema completo)"
-    tables = ", ".join(schema_link.get("tables", [])) or "(nenhuma)"
-    columns = ", ".join(schema_link.get("columns", [])) or "(nenhuma)"
+    tables = ", ".join(_safe_str_list(schema_link.get("tables"))) or "(nenhuma)"
+    columns = ", ".join(_safe_str_list(schema_link.get("columns"))) or "(nenhuma)"
     reasoning = schema_link.get("reasoning", "")
+    if not isinstance(reasoning, str):
+        reasoning = str(reasoning) if reasoning is not None else ""
     return f"Tabelas sugeridas: {tables}. Colunas sugeridas: {columns}. Raciocínio: {reasoning}"
+
+
+def _safe_str_list(value) -> list[str]:
+    """Mesmo saneamento defensivo de app.schema_linking._coerce_str_list,
+    repetido aqui porque `schema_linker` é um `Callable` injetável — um
+    schema_linker customizado pode devolver um shape inesperado sem passar
+    por `link_schema`, que já sanea sua própria saída."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _coerce_confidence(value) -> Optional[float]:
@@ -201,13 +217,32 @@ class Orchestrator:
                 arguments = json.loads(tool_call.function.arguments)
 
                 if tool_call.function.name == "finalize_answer":
-                    # Terminal: não passa pelo tool_executor nem gera
-                    # mensagem role:tool — o loop termina já nesta iteração.
-                    finalize_result = {
-                        "answer": arguments.get("answer", ""),
-                        "confidence": _coerce_confidence(arguments.get("confidence")),
-                        "reasoning": arguments.get("reasoning", ""),
-                    }
+                    answer = arguments.get("answer")
+                    if isinstance(answer, str) and answer.strip():
+                        # Terminal: não passa pelo tool_executor nem gera
+                        # mensagem role:tool — o loop termina já nesta
+                        # iteração.
+                        reasoning = arguments.get("reasoning", "")
+                        finalize_result = {
+                            "answer": answer,
+                            "confidence": _coerce_confidence(arguments.get("confidence")),
+                            "reasoning": reasoning if isinstance(reasoning, str) else str(reasoning),
+                        }
+                    else:
+                        # answer vazia/ausente/não-string não é uma
+                        # finalização válida: aceitá-la quebraria
+                        # AskResponse.answer:str e cacheado permanentemente
+                        # para essa pergunta. Avisa o modelo e segue o loop.
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": json.dumps(
+                                    {"ok": False, "error": "answer deve ser uma string não vazia."},
+                                    ensure_ascii=False,
+                                ),
+                            }
+                        )
                     continue
 
                 result = self._tool_executor(tool_call.function.name, arguments)

@@ -57,7 +57,25 @@ def link_schema(
         raise ValueError(f"Resposta de schema linking não é JSON válido: {content!r}") from exc
 
     return {
-        "tables": parsed.get("tables", []),
-        "columns": parsed.get("columns", []),
-        "reasoning": parsed.get("reasoning", ""),
+        "tables": _coerce_str_list(parsed.get("tables")),
+        "columns": _coerce_str_list(parsed.get("columns")),
+        "reasoning": _coerce_str(parsed.get("reasoning", "")),
     }
+
+
+def _coerce_str_list(value) -> list[str]:
+    """Filtra `value` para uma lista só de strings; [] para qualquer outra forma.
+
+    Modelos gratuitos às vezes devolvem `null` em vez de `[]`, ou uma lista
+    de objetos em vez de strings — essa dica é consumida pelo prompt (nunca
+    usada para liberar SQL), então o saneamento aqui é suficiente.
+    """
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _coerce_str(value) -> str:
+    if isinstance(value, str):
+        return value
+    return str(value) if value is not None else ""

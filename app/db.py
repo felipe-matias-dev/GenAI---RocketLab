@@ -49,14 +49,24 @@ def get_schema_description(db_path: str = str(DB_PATH)) -> str:
 
 
 def get_distinct_values(
-    table: str, column: str, limit: int = 200, db_path: Path = DB_PATH
-) -> list:
+    table: str,
+    column: str,
+    contains: str = None,
+    limit: int = 200,
+    db_path: Path = DB_PATH,
+) -> dict:
     """Retorna valores distintos não nulos de `column` em `table`.
 
     Usado pela tool homônima para o LLM descobrir a grafia exata de valores
     de texto (ex.: nome de gênero) antes de montar um filtro WHERE — table/
     column não podem usar placeholders `?` do sqlite3, então são validados
     contra o schema real (allow-list) antes de entrar na query interpolada.
+    `contains` é um valor, não um identificador, então entra como parâmetro
+    `?` normal (LIKE), sem risco de injeção.
+
+    Colunas de alta cardinalidade (nome de pessoa, produtora) têm centenas
+    de milhares de valores distintos — sem `contains`, o resultado é
+    cortado em `limit` e `truncated=True` avisa que a lista não é completa.
     """
     conn = get_connection(db_path)
     try:
@@ -67,11 +77,20 @@ def get_distinct_values(
         if column not in columns:
             raise ValueError(f"Coluna desconhecida em {table}: {column}")
 
-        cur = conn.execute(
-            f'SELECT DISTINCT "{column}" FROM "{table}" '
-            f'WHERE "{column}" IS NOT NULL LIMIT {limit}'
-        )
-        return [row[0] for row in cur.fetchall()]
+        query = f'SELECT DISTINCT "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL'
+        params: list = []
+        if contains:
+            query += f' AND "{column}" LIKE ?'
+            params.append(f"%{contains}%")
+        query += " LIMIT ?"
+        params.append(limit + 1)
+
+        rows = conn.execute(query, params).fetchall()
+        values = [row[0] for row in rows]
+        truncated = len(values) > limit
+        if truncated:
+            values = values[:limit]
+        return {"values": values, "truncated": truncated}
     finally:
         conn.close()
 

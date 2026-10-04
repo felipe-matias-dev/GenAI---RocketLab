@@ -41,6 +41,17 @@ def test_get_distinct_values_returns_ok_rows():
 
     assert result["ok"] is True
     assert "Science Fiction" in result["values"]
+    assert result["truncated"] is False
+
+
+def test_get_distinct_values_with_contains_filters_results():
+    result = tools.execute_tool(
+        "get_distinct_values",
+        {"table": "dim_genres", "column": "nome_genero", "contains": "Fic"},
+    )
+
+    assert result["ok"] is True
+    assert result["values"] == ["Science Fiction"]
 
 
 def test_get_distinct_values_returns_error_for_unknown_column():

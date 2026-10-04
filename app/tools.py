@@ -71,6 +71,16 @@ TOOL_SCHEMAS = [
                         "type": "string",
                         "description": "Nome da coluna de texto a inspecionar.",
                     },
+                    "contains": {
+                        "type": "string",
+                        "description": (
+                            "Opcional. Filtra os valores retornados para os que "
+                            "contêm este trecho (case-sensitive). Use para colunas "
+                            "de alta cardinalidade (nome de pessoa, produtora) — "
+                            "sem filtro, a lista é cortada e pode não conter o "
+                            "valor procurado."
+                        ),
+                    },
                 },
                 "required": ["table", "column"],
             },
@@ -119,7 +129,9 @@ def execute_tool(name: str, arguments: dict) -> dict:
     if name == "semantic_search_synopses":
         return _semantic_search(arguments.get("query", ""), arguments.get("k", 5))
     if name == "get_distinct_values":
-        return _get_distinct_values(arguments.get("table", ""), arguments.get("column", ""))
+        return _get_distinct_values(
+            arguments.get("table", ""), arguments.get("column", ""), arguments.get("contains")
+        )
     return {"ok": False, "error": f"Ferramenta desconhecida: {name}"}
 
 
@@ -137,15 +149,15 @@ def _execute_sql(query: str) -> dict:
     return {"ok": True, "rows": rows}
 
 
-def _get_distinct_values(table: str, column: str) -> dict:
+def _get_distinct_values(table: str, column: str, contains: str = None) -> dict:
     try:
-        values = get_distinct_values(table, column)
+        result = get_distinct_values(table, column, contains=contains)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     except sqlite3.Error as exc:
         return {"ok": False, "error": str(exc)}
 
-    return {"ok": True, "values": values}
+    return {"ok": True, "values": result["values"], "truncated": result["truncated"]}
 
 
 def _semantic_search(query: str, k: int) -> dict:

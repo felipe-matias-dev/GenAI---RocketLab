@@ -26,8 +26,22 @@ def test_explain_query_executes_through_run_query():
 
 
 def test_get_distinct_values_returns_known_genre():
-    values = db.get_distinct_values("dim_genres", "nome_genero")
-    assert "Science Fiction" in values
+    result = db.get_distinct_values("dim_genres", "nome_genero")
+    assert "Science Fiction" in result["values"]
+    assert result["truncated"] is False
+
+
+def test_get_distinct_values_with_contains_filters_results():
+    result = db.get_distinct_values("dim_genres", "nome_genero", contains="Fic")
+    assert result["values"] == ["Science Fiction"]
+
+
+def test_get_distinct_values_sets_truncated_flag_when_limit_reached():
+    # dim_people.nome_pessoa tem centenas de milhares de valores distintos —
+    # bem mais que o limit padrão, então sem filtro o resultado é cortado.
+    result = db.get_distinct_values("dim_people", "nome_pessoa", limit=5)
+    assert len(result["values"]) == 5
+    assert result["truncated"] is True
 
 
 def test_get_distinct_values_rejects_unknown_table():

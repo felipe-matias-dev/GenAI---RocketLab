@@ -57,3 +57,32 @@ def test_link_schema_raises_on_invalid_json():
 
     with pytest.raises(ValueError):
         link_schema(complete_fn, "model-a:free", "pergunta", "schema")
+
+
+def test_link_schema_returns_empty_list_when_tables_is_null():
+    def complete_fn(model, messages, tools):
+        return make_response('{"tables": null, "columns": null, "reasoning": "r"}')
+
+    result = link_schema(complete_fn, "model-a:free", "pergunta", "schema")
+
+    assert result == {"tables": [], "columns": [], "reasoning": "r"}
+
+
+def test_link_schema_filters_out_non_string_table_entries():
+    def complete_fn(model, messages, tools):
+        return make_response(
+            '{"tables": [{"name": "dim_movies"}, "dim_genres"], "columns": [], "reasoning": "r"}'
+        )
+
+    result = link_schema(complete_fn, "model-a:free", "pergunta", "schema")
+
+    assert result["tables"] == ["dim_genres"]
+
+
+def test_link_schema_coerces_non_string_reasoning():
+    def complete_fn(model, messages, tools):
+        return make_response('{"tables": [], "columns": [], "reasoning": 42}')
+
+    result = link_schema(complete_fn, "model-a:free", "pergunta", "schema")
+
+    assert result["reasoning"] == "42"

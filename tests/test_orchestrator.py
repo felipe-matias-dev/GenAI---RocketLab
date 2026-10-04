@@ -228,6 +228,57 @@ def test_finalize_answer_with_invalid_confidence_coerces_to_none(empty_cache):
     assert result["confidence"] is None
 
 
+def test_finalize_answer_with_empty_answer_does_not_terminate(empty_cache):
+    # Uma answer vazia/ausente não é uma finalização válida: aceitá-la
+    # quebraria AskResponse.answer:str e, pior, o resultado inválido seria
+    # cacheado permanentemente para essa pergunta. O loop deve continuar e
+    # dar ao modelo a chance de corrigir.
+    responses = [
+        make_response(
+            tool_calls=[
+                make_tool_call("call-1", "finalize_answer", {"answer": "", "confidence": 0.5, "reasoning": "r"})
+            ]
+        ),
+        make_response(
+            tool_calls=[
+                make_tool_call(
+                    "call-2", "finalize_answer", {"answer": "resposta válida", "confidence": 0.9, "reasoning": "r2"}
+                )
+            ]
+        ),
+    ]
+    calls = []
+
+    def complete_fn(model, messages, tools):
+        calls.append(model)
+        return responses.pop(0)
+
+    orchestrator = build_orchestrator(complete_fn, cache=empty_cache, max_iterations=3)
+    result = orchestrator.ask("pergunta")
+
+    assert result["answer"] == "resposta válida"
+    assert len(calls) == 2
+
+
+def test_finalize_answer_with_non_string_answer_does_not_terminate(empty_cache):
+    responses = [
+        make_response(
+            tool_calls=[
+                make_tool_call("call-1", "finalize_answer", {"answer": None, "confidence": 0.5, "reasoning": "r"})
+            ]
+        ),
+        make_response(content="fallback em texto livre"),
+    ]
+
+    def complete_fn(model, messages, tools):
+        return responses.pop(0)
+
+    orchestrator = build_orchestrator(complete_fn, cache=empty_cache, max_iterations=3)
+    result = orchestrator.ask("pergunta")
+
+    assert result["answer"] == "fallback em texto livre"
+
+
 def test_finalize_answer_confidence_is_clamped_to_unit_range(empty_cache):
     def complete_fn(model, messages, tools):
         return make_response(
@@ -361,6 +412,24 @@ def test_system_prompt_includes_schema_link_hint(empty_cache):
     system_message = captured_messages[0][0]
     assert system_message["role"] == "system"
     assert "dim_genres" in system_message["content"]
+
+
+def test_schema_linker_returning_malformed_shape_does_not_crash_ask(empty_cache):
+    # Um schema_linker customizado pode devolver algo fora do formato
+    # esperado sem passar por app.schema_linking.link_schema (que já sanea
+    # isso) — _format_schema_link precisa ser defensivo por conta própria.
+    def malformed_schema_linker(question):
+        return {"tables": None, "columns": [{"not": "a string"}], "reasoning": 123}
+
+    def complete_fn(model, messages, tools):
+        return make_response(content="resposta")
+
+    orchestrator = build_orchestrator(
+        complete_fn, cache=empty_cache, schema_linker=malformed_schema_linker
+    )
+    result = orchestrator.ask("pergunta")
+
+    assert result["answer"] == "resposta"
 
 
 def test_schema_linker_failure_falls_back_gracefully(empty_cache):
