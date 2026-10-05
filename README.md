@@ -176,23 +176,25 @@ SCHEMA_LINKING=off python -m eval.run_eval   # sem a chamada extra de schema lin
 **Atenção:** cada pergunta nova consome cota real do OpenRouter. Perguntas
 repetidas usam o cache e não gastam cota. Não faz parte da suíte `pytest`.
 
-### Resultado da última execução (04/10/2026, `SCHEMA_LINKING=off`)
+### Resultado da última execução (05/10/2026, `SCHEMA_LINKING=off`)
 
-**14 de 14 corretas entre as 14 que obtiveram resposta**, em 36 chamadas ao
-LLM (2,2 por pergunta). Seis perguntas ficaram sem nota — o limite diário de 50
-requisições `:free` acabou durante a execução (`rev-01`, `rev-02`:
-"sem resposta por falha de infraestrutura"; `explain-01`, `distinct-01` e as
-duas de busca semântica não chegaram a rodar). Reexecute com
-`--ids rev-01 rev-02 explain-01 distinct-01 hybrid-01 hybrid-02` após o reset
-da cota.
+**18 de 18 corretas entre as 18 perguntas com correção automática**, mais 2 de
+busca semântica avaliadas à mão, em 47 chamadas ao LLM nas 20 perguntas (2,4
+por pergunta). A execução foi feita em duas etapas por causa do limite diário
+de 50 requisições `:free`: 14 perguntas em 04/10 e as 6 restantes (`rev-01`,
+`rev-02`, `explain-01`, `distinct-01`, `hybrid-01`, `hybrid-02`) em 05/10, com
+outra chave do OpenRouter. Resultados acumulados em `eval/results.json`.
 
-**Pendência declarada:** em 05/10/2026 a cota diária voltou a zero
-(`free_model_daily_requests`: 55 usadas, limite 50, 0 restantes) e só reseta
-às 00:00 UTC, depois do prazo de entrega. Por isso `rev-01`/`rev-02` (categoria
-"Avaliações dos Usuários"), `explain-01`, `distinct-01` e as duas perguntas
-híbridas **não têm veredito** neste relatório. As regras de `dim_reviews` estão
-no prompt e cobertas por testes unitários, mas não foram validadas contra o
-modelo real.
+Avaliação manual da busca semântica (sem gabarito possível): em `hybrid-01`
+(viagem no tempo) os 4 primeiros resultados são pertinentes (Container, The
+Klatos Paradox, Loop, Rida's Clock), mas os 3 últimos são palpites fracos que o
+modelo listou mesmo com sinopse curta ou sem relação clara; em `hybrid-02` (IA
+que se rebela) Hard Reset e Termination são pertinentes e os demais são
+tangenciais. Os scores de similaridade ficaram entre 0,36 e 0,50, e a resposta
+incluiu um aviso espúrio de moeda ("USD") sem relação com a pergunta. Conclusão:
+a busca encontra o tema, mas a lista não deve ser lida como "só filmes certos".
+A primeira geração do índice de embeddings levou ~12 min nesta máquina
+(`hybrid-01`, 722 s); depois disso fica em disco.
 
 Como esse placar foi obtido, sem maquiagem: a primeira passada teve 2 falhas
 (`fin-03`, `cast-02`) e as duas eram defeitos reais, corrigidos antes do
@@ -203,8 +205,8 @@ execução expôs que `z-ai/glm-5.2:free` virou pago (HTTP 404), o que derrubava
 a pergunta em vez de acionar o fallback; o 404 agora escala na cadeia e o
 modelo foi trocado.
 
-O schema linking acrescenta exatamente 1 chamada por pergunta (≈ +45% sobre as
-2,2 medidas). Seu ganho de acerto **não foi medido** — só a execução sem ele
+O schema linking acrescenta exatamente 1 chamada por pergunta (≈ +40% sobre as
+2,4 medidas). Seu ganho de acerto **não foi medido** — só a execução sem ele
 existe. Para decidir, rode as mesmas perguntas com e sem `SCHEMA_LINKING=off`
 e compare o placar.
 
