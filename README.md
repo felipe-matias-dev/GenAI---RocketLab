@@ -74,9 +74,11 @@ segurança. Feito para a atividade GenAI do Rocket Lab 2026 (Visagio).
 - Uma chave da API do OpenRouter (grátis, sem cartão) — veja
   `openrouter.ai/keys`. **Limite:** 50 requisições/dia compartilhadas entre
   todos os modelos `:free`.
-- O arquivo **`cinerocket.db`** (~580MB) — não está neste repositório por
-  exceder o limite de tamanho do GitHub. Baixe-o da pasta compartilhada da
-  atividade e coloque em `data/cinerocket.db`.
+- O arquivo **`cinerocket.db`** (SQLite, ~580MB, 10 tabelas da camada Gold) —
+  não está neste repositório por exceder o limite de tamanho do GitHub.
+  Baixe-o da pasta compartilhada da atividade (se o download vier como
+  `cinerocket (1).db`, renomeie para `cinerocket.db`) e coloque em
+  `data/cinerocket.db`. Sem ele a API sobe, mas toda pergunta falha.
 
 ## Passo a passo
 
@@ -183,6 +185,14 @@ requisições `:free` acabou durante a execução (`rev-01`, `rev-02`:
 duas de busca semântica não chegaram a rodar). Reexecute com
 `--ids rev-01 rev-02 explain-01 distinct-01 hybrid-01 hybrid-02` após o reset
 da cota.
+
+**Pendência declarada:** em 05/10/2026 a cota diária voltou a zero
+(`free_model_daily_requests`: 55 usadas, limite 50, 0 restantes) e só reseta
+às 00:00 UTC, depois do prazo de entrega. Por isso `rev-01`/`rev-02` (categoria
+"Avaliações dos Usuários"), `explain-01`, `distinct-01` e as duas perguntas
+híbridas **não têm veredito** neste relatório. As regras de `dim_reviews` estão
+no prompt e cobertas por testes unitários, mas não foram validadas contra o
+modelo real.
 
 Como esse placar foi obtido, sem maquiagem: a primeira passada teve 2 falhas
 (`fin-03`, `cast-02`) e as duas eram defeitos reais, corrigidos antes do
