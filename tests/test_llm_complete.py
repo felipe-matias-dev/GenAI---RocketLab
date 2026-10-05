@@ -144,3 +144,62 @@ def test_complete_routed_escalates_when_provider_has_no_key():
 
     with pytest.raises(ModelUnavailable):
         complete_routed({"openrouter": object()}, "groq:openai/gpt-oss-120b", [], [])
+
+
+def _parse_failed_error(code="output_parse_failed"):
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    response = httpx.Response(status_code=400, request=request)
+    body = {"message": "Parsing failed.", "type": "invalid_request_error", "code": code}
+    return openai.BadRequestError("Parsing failed.", response=response, body=body)
+
+
+@pytest.mark.parametrize("code", ["output_parse_failed", "tool_use_failed"])
+def test_complete_retries_malformed_generation_and_returns_next_success(code):
+    # Groq devolve 400 output_parse_failed quando o modelo gera uma tool call
+    # inválida; é aleatório, então a mesma chamada é repetida.
+    sentinel = SimpleNamespace(choices=[])
+    attempts = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise _parse_failed_error(code)
+            return sentinel
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    assert complete(client, "openai/gpt-oss-120b", [], []) is sentinel
+    assert len(attempts) == 2
+
+
+def test_complete_escalates_when_generation_keeps_failing():
+    from app.llm import MAX_GENERATION_RETRIES
+
+    attempts = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            attempts.append(1)
+            raise _parse_failed_error()
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    with pytest.raises(ModelUnavailable):
+        complete(client, "openai/gpt-oss-120b", [], [])
+    assert len(attempts) == MAX_GENERATION_RETRIES + 1
+
+
+def test_complete_reraises_other_bad_requests_without_retry():
+    attempts = []
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            attempts.append(1)
+            raise _status_error(openai.BadRequestError, 400)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    with pytest.raises(openai.BadRequestError):
+        complete(client, "some-model:free", [], [])
+    assert len(attempts) == 1
