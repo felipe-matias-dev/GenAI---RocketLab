@@ -225,3 +225,13 @@ def test_unexpected_exception_in_one_question_does_not_abort_the_batch(tmp_path,
     saved = {r["id"]: r for r in json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))}
     assert saved["q0"]["verdict"] == "FAIL" and "RuntimeError" in saved["q0"]["error"]
     assert saved["q1"]["verdict"] == "PASS"
+
+
+def test_infrastructure_failure_is_reported_as_erro_and_excluded_from_score():
+    rows = [
+        {"id": "a", "verdict": "PASS", "verdict_detail": "ok", "llm_calls": 2},
+        {"id": "b", "verdict": "ERRO", "verdict_detail": "cota", "llm_calls": 3},
+    ]
+    summary = run_eval._summary(rows)
+    assert "1/1" in summary
+    assert "1 sem resposta por falha de infraestrutura" in summary

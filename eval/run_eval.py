@@ -87,7 +87,10 @@ def run(ids: list[str] | None = None, stop_after: int | None = None) -> None:
         elapsed = time.monotonic() - start
         llm_calls = llm.call_count - calls_before
         if error:
-            grading = {"verdict": "FAIL", "detail": error}
+            # Falha de infraestrutura (cota/modelos fora do ar) não diz nada sobre
+            # a qualidade do agente: ERRO fica fora do placar de acertos.
+            infra = error.startswith("Nenhum modelo da cadeia")
+            grading = {"verdict": "ERRO" if infra else "FAIL", "detail": error}
         else:
             grading = grade(item.get("check", {}), load_reference(item["id"]), result)
 
@@ -147,12 +150,12 @@ def _write_report(rows: list[dict]) -> None:
 
 
 def _summary(rows: list[dict]) -> str:
-    counts = {v: sum(r["verdict"] == v for r in rows) for v in ("PASS", "FAIL", "MANUAL")}
+    counts = {v: sum(r["verdict"] == v for r in rows) for v in ("PASS", "FAIL", "MANUAL", "ERRO")}
     graded = counts["PASS"] + counts["FAIL"]
     total_calls = sum(r["llm_calls"] for r in rows)
     lines = [
         f"**Acertos automáticos: {counts['PASS']}/{graded}** "
-        f"({counts['MANUAL']} pergunta(s) para revisão manual) · "
+        f"({counts['MANUAL']} para revisão manual, {counts['ERRO']} sem resposta por falha de infraestrutura) · "
         f"**{total_calls} chamadas ao LLM** nas {len(rows)} perguntas "
         f"({total_calls / max(len(rows), 1):.1f} por pergunta)\n",
         "| Pergunta | Veredito | Chamadas | Detalhe |",

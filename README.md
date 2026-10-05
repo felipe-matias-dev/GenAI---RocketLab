@@ -20,13 +20,22 @@ segurança. Feito para a atividade GenAI do Rocket Lab 2026 (Visagio).
   injetada no prompt (exposta em `schema_link` na resposta) — nunca uma
   restrição nem uma fronteira de segurança; se falhar, cai para o schema
   completo sem travar a pergunta.
-- **Guardrails** (`app/guardrails.py`): só SELECT/WITH/EXPLAIN, uma única
-  instrução, LIMIT obrigatório — reforçado por uma conexão SQLite aberta em
-  **modo somente-leitura no nível do SO** (`app/db.py`), então mesmo uma
-  falha na validação não permitiria escrever no banco. O prompt de sistema
-  também instrui o modelo a recusar (via `finalize_answer` com `confidence
-  0.0`) pedidos para ignorar instruções, mudar de persona ou sair do
-  domínio do catálogo de filmes.
+- **Guardrails em três camadas** (`app/guardrails.py`, `app/db.py`):
+  1. `validate_sql` — só SELECT/WITH/EXPLAIN, instrução única, `LIMIT`
+     obrigatório **no nível externo**. Percorre o SQL ignorando comentários e
+     o conteúdo de strings, então um título como 'Create' não é bloqueado e um
+     `LIMIT` dentro de subquery/string não conta como limite.
+  2. `run_query` no caminho do LLM — *authorizer* do SQLite (só SELECT em
+     tabelas reais: bloqueia `sqlite_master`, `pragma_*`, `load_extension`),
+     timeout de 30 s (`SQL_TIMEOUT_SECONDS`, via progress handler) e corte de
+     500 linhas em memória. Medido: um produto cartesiano com `LIMIT` só nas
+     subqueries passava de 20 s sem interrupção; a dupla ator–diretor em JOIN
+     ingênuo (745 mil linhas na ponte) não terminava em 90 s.
+  3. Conexão aberta em modo somente-leitura (`mode=ro`) no nível do SO.
+
+  O prompt de sistema também instrui o modelo a recusar (via
+  `finalize_answer` com `confidence 0.0`) pedidos para ignorar instruções,
+  mudar de persona ou sair do domínio do catálogo de filmes.
 - **Descoberta de valores** (`app/tools.py`/`app/db.py`): a tool
   `get_distinct_values` deixa o modelo checar a grafia exata de valores de
   texto (gênero, diretor, produtora) antes de montar um filtro WHERE, em
@@ -37,6 +46,14 @@ segurança. Feito para a atividade GenAI do Rocket Lab 2026 (Visagio).
 - **Memória de conversa** (`app/memory.py`): histórico por `session_id`, em
   memória (não sobrevive a um restart do servidor — tradeoff assumido por
   simplicidade).
+- **Regras analíticas no prompt** (`app/orchestrator.py`): codificam as
+  armadilhas medidas no `cinerocket.db` — 96,5% dos filmes sem receita
+  (92.272 de 95.645) e 91,7% sem orçamento; o lucro médio por gênero vale
+  US$ 37,6 mi filtrando só receita e US$ 61,1 mi exigindo também orçamento;
+  48.210 nomes duplicados em `dim_people` (agrupar pela chave, não pelo nome);
+  `data_lancamento` (texto ISO) vs `ano_lancamento` (inteiro); e um exemplo
+  de dupla ator–diretor (~12 s; sem ele o JOIN não termina). A data de hoje é
+  injetada para "últimos N anos".
 - **Cadeia de modelos com escalonamento por falha** (`app/llm.py` +
   `app/orchestrator.py`): tenta sempre o modelo padrão primeiro; se a
   chamada falhar por erro de infraestrutura (429/5xx) ou o agente não
@@ -137,18 +154,49 @@ Reaproveita a mesma fiação de produção (`app/factory.py`) usada pela API —
 
 ## Rodando a avaliação
 
-`eval/run_eval.py` roda um conjunto fixo de ~20 perguntas (cobrindo as 5
-categorias do enunciado, mais casos de guardrail/jailbreak, busca
-semântica, `EXPLAIN` e `get_distinct_values`) contra o agente real e gera
-`eval/results.md` com confiança, raciocínio e schema linking por pergunta.
+`eval/run_eval.py` roda 20 perguntas (as 5 categorias do enunciado, mais
+guardrail/jailbreak, busca semântica, `EXPLAIN` e `get_distinct_values`)
+contra o agente real e **corrige automaticamente** as estruturadas contra um
+gabarito SQL (`eval/reference_sql/<id>.sql`, regras em `eval/grading.py`):
+compara valores e não nomes de coluna, tolera fração vs. percentual e empates
+na métrica, e confere recusa (sem SQL e confiança ≤ 0,2), `EXPLAIN` e a
+contagem citada na resposta. Busca semântica fica como `MANUAL`. Gera
+`eval/results.md` (placar + detalhe por pergunta, incluindo nº de chamadas ao
+LLM) e acumula em `eval/results.json`.
 
 ```bash
-python -m eval.run_eval
+python -m eval.run_eval                      # todas
+python -m eval.run_eval --ids fin-01 pop-01  # só algumas, em etapas
+python -m eval.run_eval --stop-after 2       # para se a cota acabar
+SCHEMA_LINKING=off python -m eval.run_eval   # sem a chamada extra de schema linking
 ```
 
 **Atenção:** cada pergunta nova consome cota real do OpenRouter. Perguntas
-repetidas entre execuções usam o cache e não gastam cota. Rode com
-moderação — não faz parte da suíte `pytest`.
+repetidas usam o cache e não gastam cota. Não faz parte da suíte `pytest`.
+
+### Resultado da última execução (04/10/2026, `SCHEMA_LINKING=off`)
+
+**14 de 14 corretas entre as 14 que obtiveram resposta**, em 36 chamadas ao
+LLM (2,2 por pergunta). Seis perguntas ficaram sem nota — o limite diário de 50
+requisições `:free` acabou durante a execução (`rev-01`, `rev-02`:
+"sem resposta por falha de infraestrutura"; `explain-01`, `distinct-01` e as
+duas de busca semântica não chegaram a rodar). Reexecute com
+`--ids rev-01 rev-02 explain-01 distinct-01 hybrid-01 hybrid-02` após o reset
+da cota.
+
+Como esse placar foi obtido, sem maquiagem: a primeira passada teve 2 falhas
+(`fin-03`, `cast-02`) e as duas eram defeitos reais, corrigidos antes do
+placar final — (1) a API devolvia em `data` a *última* consulta, um `COUNT` de
+sanidade, no lugar do ranking (agora é o maior resultado); (2) o corretor
+exigia uma ordem entre dois diretores empatados em 9,1875. Além disso, a
+execução expôs que `z-ai/glm-5.2:free` virou pago (HTTP 404), o que derrubava
+a pergunta em vez de acionar o fallback; o 404 agora escala na cadeia e o
+modelo foi trocado.
+
+O schema linking acrescenta exatamente 1 chamada por pergunta (≈ +45% sobre as
+2,2 medidas). Seu ganho de acerto **não foi medido** — só a execução sem ele
+existe. Para decidir, rode as mesmas perguntas com e sem `SCHEMA_LINKING=off`
+e compare o placar.
 
 ## Sobre a cota de 50 requisições/dia
 
