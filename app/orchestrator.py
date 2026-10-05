@@ -313,7 +313,14 @@ class Orchestrator:
 
                 if tool_call.function.name == "execute_sql" and result.get("ok"):
                     sql_used.append(arguments.get("query", ""))
-                    last_data = result.get("rows")
+                    rows = result.get("rows")
+                    # `data` é o conjunto que sustenta a resposta. O modelo
+                    # costuma rodar uma consulta auxiliar depois da principal
+                    # (ex.: um COUNT de sanidade), então "a última" mostraria
+                    # a contagem no lugar do ranking: fica o maior resultado,
+                    # e em empate o mais recente.
+                    if last_data is None or len(rows or []) >= len(last_data):
+                        last_data = rows
 
                 messages.append(
                     {

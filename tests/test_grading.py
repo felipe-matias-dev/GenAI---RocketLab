@@ -122,3 +122,29 @@ def test_reference_columns_follow_key_metric_convention():
     for path in run_eval.REFERENCE_DIR.glob("*.sql"):
         text = path.read_text(encoding="utf-8")
         assert "AS key_" in text or "AS metric_" in text, path.name
+
+
+def test_ordered_match_tolerates_tied_metrics_in_any_order():
+    reference = [
+        {"key_diretor": "A", "metric_nota": 9.5},
+        {"key_diretor": "B", "metric_nota": 9.1875},
+        {"key_diretor": "C", "metric_nota": 9.1875},
+        {"key_diretor": "D", "metric_nota": 9.0},
+    ]
+    data = [
+        {"n": "A", "m": 9.5},
+        {"n": "C", "m": 9.1875},  # B e C empatam: a ordem entre eles é arbitrária
+        {"n": "B", "m": 9.1875},
+        {"n": "D", "m": 9.0},
+    ]
+    assert grade_rows(reference, data, {"kind": "rows"})[0]
+
+
+def test_tie_tolerance_does_not_hide_a_wrong_key_outside_the_tie_group():
+    reference = [
+        {"key_diretor": "A", "metric_nota": 9.5},
+        {"key_diretor": "B", "metric_nota": 9.1875},
+        {"key_diretor": "C", "metric_nota": 9.1875},
+    ]
+    data = [{"n": "A", "m": 9.5}, {"n": "Z", "m": 9.1875}, {"n": "C", "m": 9.1875}]
+    assert not grade_rows(reference, data, {"kind": "rows"})[0]

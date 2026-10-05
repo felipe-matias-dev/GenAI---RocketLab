@@ -63,6 +63,22 @@ def _row_matches(reference: dict, candidate: dict, use_keys: bool) -> bool:
     return True
 
 
+def _tie_group(row: dict, reference: list[dict]) -> list[dict]:
+    """Linhas do gabarito com as mesmas métricas de `row` (inclui a própria)."""
+    metrics = _split(row)[1]
+    if not metrics:
+        return [row]
+    return [
+        other
+        for other in reference
+        if len(_split(other)[1]) == len(metrics)
+        and all(
+            (a is None and b is None) or (a is not None and b is not None and _close(a, b))
+            for a, b in zip(_split(other)[1], metrics)
+        )
+    ]
+
+
 def grade_rows(reference: list[dict], data: Optional[list[dict]], check: dict) -> tuple[bool, str]:
     if not data:
         return False, "o agente não devolveu linhas de dados"
@@ -80,7 +96,12 @@ def grade_rows(reference: list[dict], data: Optional[list[dict]], check: dict) -
 
     if ordered:
         for index, ref in enumerate(expected):
-            if not _row_matches(ref, data[index], use_keys):
+            # Linhas empatadas na métrica podem vir em qualquer ordem — a
+            # pergunta não define desempate —, então a chave pode ser a de
+            # qualquer linha do mesmo grupo de empate.
+            if not any(
+                _row_matches(tied, data[index], use_keys) for tied in _tie_group(ref, reference)
+            ):
                 return False, f"linha {index + 1} difere do gabarito ({_describe(ref)})"
         return True, f"{len(expected)} linha(s) conferem, na ordem"
 

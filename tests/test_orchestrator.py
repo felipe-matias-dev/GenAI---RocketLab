@@ -633,3 +633,46 @@ def test_pair_query_example_in_prompt_is_valid_and_passes_guardrail(empty_cache)
     # EXPLAIN QUERY PLAN prova que o SQL do exemplo compila contra o schema real
     # sem pagar os ~12s da execução.
     assert db.run_query("EXPLAIN QUERY PLAN " + sql, timeout_seconds=10)
+
+
+def test_data_is_the_largest_result_not_a_trailing_sanity_query(empty_cache):
+    """Regressão (eval fin-03): o modelo roda o ranking e depois um COUNT; `data`
+    não pode virar a contagem de 1 linha."""
+    ranking = [{"titulo": f"filme {i}"} for i in range(10)]
+    results = iter([{"ok": True, "rows": ranking}, {"ok": True, "rows": [{"total": 3373}]}])
+
+    def tool_message(name, args, call_id):
+        return SimpleNamespace(
+            content=None,
+            tool_calls=[
+                SimpleNamespace(
+                    id=call_id, function=SimpleNamespace(name=name, arguments=json.dumps(args))
+                )
+            ],
+        )
+
+    steps = iter(
+        [
+            tool_message("execute_sql", {"query": "SELECT 1"}, "c1"),
+            tool_message("execute_sql", {"query": "SELECT COUNT(*)"}, "c2"),
+            tool_message(
+                "finalize_answer", {"answer": "ok", "confidence": 0.9, "reasoning": "r"}, "c3"
+            ),
+        ]
+    )
+
+    def complete(model, messages, tools):
+        return SimpleNamespace(choices=[SimpleNamespace(message=next(steps))])
+
+    orchestrator = Orchestrator(
+        complete_fn=complete,
+        tool_executor=lambda name, args: next(results),
+        memory=SessionMemory(max_turns=2),
+        cache=empty_cache,
+        model_chain=["m"],
+        max_iterations=5,
+        schema_linker=lambda *a, **k: {},
+    )
+    result = orchestrator.ask("top 10 e quantos elegíveis?")
+    assert result["data"] == ranking
+    assert len(result["sql_used"]) == 2
