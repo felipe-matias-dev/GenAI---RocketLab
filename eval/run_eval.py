@@ -7,9 +7,16 @@ resolvidas pelo cache (app/cache.py) sem gastar cota. Rode com moderação —
 não é parte da suíte automática (pytest).
 
 Uso:
-    python -m eval.run_eval
+    python -m eval.run_eval                       # todas as perguntas
+    python -m eval.run_eval --ids fin-01 pop-01   # só algumas (acumula em results.json)
+    python -m eval.run_eval --stop-after 2        # para após 2 falhas totais seguidas
+
+Os resultados são acumulados por id em eval/results.json e o results.md é
+regerado a cada pergunta — assim a avaliação pode ser feita em etapas ao longo
+de dias (cota de 50/dia) sem perder o que já foi medido.
 """
 
+import argparse
 import json
 import time
 from pathlib import Path
@@ -37,13 +44,29 @@ def load_reference(question_id: str) -> list[dict] | None:
 
 QUESTIONS_PATH = Path(__file__).parent / "questions.json"
 RESULTS_PATH = Path(__file__).parent / "results.md"
+RESULTS_JSON_PATH = Path(__file__).parent / "results.json"
 
 
-def run() -> None:
-    questions = json.loads(QUESTIONS_PATH.read_text(encoding="utf-8"))
+def _load_previous() -> dict[str, dict]:
+    if not RESULTS_JSON_PATH.exists():
+        return {}
+    return {row["id"]: row for row in json.loads(RESULTS_JSON_PATH.read_text(encoding="utf-8"))}
+
+
+def _persist(by_id: dict[str, dict], order: list[str]) -> None:
+    rows = [by_id[qid] for qid in order if qid in by_id]
+    RESULTS_JSON_PATH.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_report(rows)
+
+
+def run(ids: list[str] | None = None, stop_after: int | None = None) -> None:
+    all_questions = json.loads(QUESTIONS_PATH.read_text(encoding="utf-8"))
+    order = [q["id"] for q in all_questions]
+    questions = [q for q in all_questions if ids is None or q["id"] in ids]
     orchestrator = build_orchestrator()
 
-    rows = []
+    by_id = _load_previous()
+    consecutive_failures = 0
     for item in questions:
         start = time.monotonic()
         calls_before = llm.call_count
@@ -68,7 +91,7 @@ def run() -> None:
         else:
             grading = grade(item.get("check", {}), load_reference(item["id"]), result)
 
-        rows.append(
+        by_id[item["id"]] = (
             {
                 "id": item["id"],
                 "category": item["category"],
@@ -89,7 +112,13 @@ def run() -> None:
         )
         print(f"[{item['id']}] {elapsed:.1f}s — {model_used} — {grading['verdict']} ({llm_calls} chamadas) — {grading['detail']}")
 
-    _write_report(rows)
+        _persist(by_id, order)
+
+        consecutive_failures = consecutive_failures + 1 if error else 0
+        if stop_after and consecutive_failures >= stop_after:
+            print(f"\nParando: {consecutive_failures} falhas totais seguidas (cota esgotada?).")
+            break
+
     print(f"\nRelatório escrito em {RESULTS_PATH}")
 
 
@@ -147,4 +176,8 @@ def _format_schema_link(schema_link: dict | None) -> str:
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser(description="Avalia o agente contra eval/questions.json")
+    parser.add_argument("--ids", nargs="+", help="ids das perguntas a rodar (padrão: todas)")
+    parser.add_argument("--stop-after", type=int, help="para após N falhas totais seguidas")
+    args = parser.parse_args()
+    run(ids=args.ids, stop_after=args.stop_after)

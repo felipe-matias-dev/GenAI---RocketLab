@@ -135,6 +135,7 @@ def test_run_grades_each_question_and_records_llm_calls(tmp_path, monkeypatch):
     questions_file.write_text(__import__("json").dumps(questions), encoding="utf-8")
     monkeypatch.setattr(run_eval, "QUESTIONS_PATH", questions_file)
     monkeypatch.setattr(run_eval, "RESULTS_PATH", tmp_path / "results.md")
+    monkeypatch.setattr(run_eval, "RESULTS_JSON_PATH", tmp_path / "results.json")
     monkeypatch.setattr(run_eval, "build_orchestrator", lambda: FakeOrchestrator())
 
     run_eval.run()
@@ -142,3 +143,57 @@ def test_run_grades_each_question_and_records_llm_calls(tmp_path, monkeypatch):
     report = (tmp_path / "results.md").read_text(encoding="utf-8")
     assert "Acertos automáticos: 1/1" in report
     assert "| guardrail-x | PASS | 4 |" in report
+
+
+def test_partial_runs_accumulate_by_id_and_keep_question_order(tmp_path, monkeypatch):
+    import json
+
+    class Fake:
+        def ask(self, question):
+            return {"answer": "recuso", "sql_used": [], "data": None, "model_used": "m",
+                    "confidence": 0.0, "reasoning": "r", "schema_link": None}
+
+    questions = [
+        {"id": qid, "category": "c", "question": qid, "expected_shape": "-", "check": {"kind": "refusal"}}
+        for qid in ("a", "b", "c")
+    ]
+    qfile = tmp_path / "q.json"
+    qfile.write_text(json.dumps(questions), encoding="utf-8")
+    monkeypatch.setattr(run_eval, "QUESTIONS_PATH", qfile)
+    monkeypatch.setattr(run_eval, "RESULTS_PATH", tmp_path / "results.md")
+    monkeypatch.setattr(run_eval, "RESULTS_JSON_PATH", tmp_path / "results.json")
+    monkeypatch.setattr(run_eval, "build_orchestrator", lambda: Fake())
+
+    run_eval.run(ids=["c"])
+    run_eval.run(ids=["a"])
+
+    saved = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
+    assert [row["id"] for row in saved] == ["a", "c"]  # na ordem do questions.json
+
+
+def test_run_stops_after_consecutive_total_failures(tmp_path, monkeypatch):
+    import json
+
+    from app.orchestrator import AllModelsFailedError
+
+    asked = []
+
+    class Failing:
+        def ask(self, question):
+            asked.append(question)
+            raise AllModelsFailedError("cota esgotada")
+
+    questions = [
+        {"id": f"q{i}", "category": "c", "question": f"q{i}", "expected_shape": "-", "check": {}}
+        for i in range(5)
+    ]
+    qfile = tmp_path / "q.json"
+    qfile.write_text(json.dumps(questions), encoding="utf-8")
+    monkeypatch.setattr(run_eval, "QUESTIONS_PATH", qfile)
+    monkeypatch.setattr(run_eval, "RESULTS_PATH", tmp_path / "results.md")
+    monkeypatch.setattr(run_eval, "RESULTS_JSON_PATH", tmp_path / "results.json")
+    monkeypatch.setattr(run_eval, "build_orchestrator", lambda: Failing())
+
+    run_eval.run(stop_after=2)
+
+    assert asked == ["q0", "q1"]
