@@ -5,10 +5,15 @@ catálogo de filmes da CineData Analytics, convertendo-as em SQL de leitura
 contra a camada Gold (`cinerocket.db`, SQLite) e executando-as com
 segurança. Feito para a atividade GenAI do Rocket Lab 2026 (Visagio).
 
+As decisões técnicas, com o problema que motivou cada uma e o número que o
+revelou, estão em [`docs/decisoes.md`](docs/decisoes.md).
+
 ## Arquitetura
 
-- **FastAPI** expõe `POST /ask` (e uma UI estática em `/` com painel de
-  detalhes técnicos — confiança, SQL final e raciocínio).
+- **FastAPI** expõe `POST /ask`, `GET /models` (cadeia de modelos em uso) e
+  uma UI estática em `/`. A UI tem gráfico (barras para rankings, linha para
+  séries por ano), tabela com download em CSV, painel técnico (confiança, SQL,
+  ferramentas usadas, raciocínio) e uma conversa que fica salva no navegador.
 - **Loop de tool-calling manual** (sem LangChain) usando o SDK `openai`
   apontado para o OpenRouter (`app/orchestrator.py`), concluído por uma
   tool obrigatória `finalize_answer(answer, confidence, reasoning)` — o
@@ -61,12 +66,23 @@ segurança. Feito para a atividade GenAI do Rocket Lab 2026 (Visagio).
   aquele modelo, escala para o próximo modelo gratuito da cadeia. Falhas de
   SQL (ex.: coluna errada) são corrigidas pelo próprio modelo dentro do
   loop de tool-calling antes de qualquer troca de modelo.
+- **Cadeia conferida ao iniciar** (`app/model_catalog.py`): o app consulta o
+  catálogo público do OpenRouter (não consome cota) e tira da cadeia os
+  modelos que saíram ou perderam suporte a tools. Em 05/10/2026 isso pegou o
+  `qwen/qwen3.8-27b:free`, colocado na cadeia um dia antes.
+- **Provedor reserva opcional** (`app/llm.py`): com `GROQ_API_KEY`, o
+  `openai/gpt-oss-120b` do Groq entra no fim da cadeia, com cota própria de
+  1.000 req/dia. Assim, uma cota esgotada no OpenRouter deixa de derrubar as
+  perguntas.
 - **Agente híbrido** (`app/embeddings.py`): busca semântica sobre as
   sinopses via embeddings locais (`sentence-transformers`), sem custo de
-  cota — o LLM escolhe entre `execute_sql` e `semantic_search_synopses`
-  conforme o tipo de pergunta.
+  cota. O LLM escolhe entre `execute_sql` e `semantic_search_synopses`
+  conforme o tipo de pergunta. A consulta semântica vai em inglês, porque as
+  sinopses e o modelo de embeddings são em inglês (1/5 resultados no tema com
+  a consulta em português, 5/5 em inglês).
 - **Avaliação** (`eval/`): conjunto de perguntas cobrindo as 5 categorias
-  do enunciado + casos de guardrail e busca semântica.
+  do enunciado, mais casos de guardrail e de busca semântica, todos com
+  veredito automático.
 
 ## Pré-requisitos
 
@@ -79,6 +95,9 @@ segurança. Feito para a atividade GenAI do Rocket Lab 2026 (Visagio).
   Baixe-o da pasta compartilhada da atividade (se o download vier como
   `cinerocket (1).db`, renomeie para `cinerocket.db`) e coloque em
   `data/cinerocket.db`. Sem ele a API sobe, mas toda pergunta falha.
+- Opcional: uma chave gratuita do Groq (`console.groq.com/keys`) em
+  `GROQ_API_KEY`, como reserva para quando a cota do OpenRouter acabar. As
+  outras variáveis opcionais estão comentadas em `.env.example`.
 
 ## Passo a passo
 
@@ -109,7 +128,21 @@ pytest
 uvicorn app.main:app --reload
 ```
 
-Abra `http://localhost:8000` para a UI mínima, ou use a API diretamente:
+### Alternativa: Docker
+
+Com o banco em `data/cinerocket.db` e o `.env` preenchido:
+
+```bash
+docker compose up --build
+```
+
+A imagem traz só o código. `data/` (banco, cache de respostas e índice de
+embeddings) entra como volume, e o modelo de embeddings fica num volume
+próprio depois do primeiro download.
+
+### Usando
+
+Abra `http://localhost:8000` para a UI, ou use a API diretamente:
 
 ```bash
 curl -X POST http://localhost:8000/ask \
@@ -139,9 +172,23 @@ Resposta:
 }
 ```
 
-`confidence`, `reasoning` e `schema_link` são omitidos da resposta quando
-`null` (ex.: no caminho de fallback para um modelo que não chamou
-`finalize_answer`, ou quando o schema linking falhou).
+`confidence`, `reasoning`, `schema_link` e `tools_used` (ferramentas chamadas,
+na ordem) são omitidos da resposta quando `null`. Isso acontece, por exemplo,
+quando o fallback cai num modelo que não chamou `finalize_answer` ou quando o
+schema linking falha.
+
+## Testes e CI
+
+```bash
+pytest
+```
+
+A suíte não usa rede nem a API. Ela lê `data/cinerocket.db` por padrão e
+também roda contra uma amostra versionada do banco: `DB_PATH` aponta para
+`tests/fixtures/cinerocket_sample.db` (3,9 MB, mesmo schema). É assim que o
+GitHub Actions (`.github/workflows/ci.yml`) roda a suíte a cada push, além de
+fazer o build da imagem Docker. Para regerar a amostra a partir do banco real:
+`python -m scripts.build_sample_db`.
 
 ## Rodando via CLI
 
@@ -162,7 +209,11 @@ contra o agente real e **corrige automaticamente** as estruturadas contra um
 gabarito SQL (`eval/reference_sql/<id>.sql`, regras em `eval/grading.py`):
 compara valores e não nomes de coluna, tolera fração vs. percentual e empates
 na métrica, e confere recusa (sem SQL e confiança ≤ 0,2), `EXPLAIN` e a
-contagem citada na resposta. Busca semântica fica como `MANUAL`. Gera
+contagem citada na resposta. Nas perguntas de busca semântica, que não têm
+gabarito SQL, a resposta passa quando três coisas acontecem juntas: o agente
+chamou `semantic_search_synopses`; pelo menos 3 dos 5 primeiros filmes
+devolvidos têm palavras-chave do tema na sinopse; e a resposta cita pelo menos
+um deles. Gera
 `eval/results.md` (placar + detalhe por pergunta, incluindo nº de chamadas ao
 LLM) e acumula em `eval/results.json`.
 
@@ -196,6 +247,13 @@ a busca encontra o tema, mas a lista não deve ser lida como "só filmes certos"
 A primeira geração do índice de embeddings levou ~12 min nesta máquina
 (`hybrid-01`, 722 s); depois disso fica em disco.
 
+**Pendente:** depois dessa revisão manual, os dois casos híbridos ganharam
+veredito automático e a consulta semântica passou a ir em inglês. A nova
+rodada no agente real não foi feita porque a cota diária acabou em 05/10. Por
+isso `eval/results.md` ainda mostra os dois como `MANUAL`. Para rodar:
+`python -m eval.run_eval --ids hybrid-01 hybrid-02`, depois que a cota voltar
+ou com `GROQ_API_KEY` configurada.
+
 Como esse placar foi obtido, sem maquiagem: a primeira passada teve 2 falhas
 (`fin-03`, `cast-02`) e as duas eram defeitos reais, corrigidos antes do
 placar final — (1) a API devolvia em `data` a *última* consulta, um `COUNT` de
@@ -212,8 +270,11 @@ e compare o placar.
 
 ## Sobre a cota de 50 requisições/dia
 
-- Verifique o uso em `openrouter.ai/activity` ou via
-  `GET https://openrouter.ai/api/v1/key`.
+- Verifique o uso em `openrouter.ai/activity`. O
+  `GET https://openrouter.ai/api/v1/key` não serve para isso: em 05/10/2026
+  ele mostrava `usage: 0` enquanto as chamadas já recebiam 429
+  `free-models-per-day`. A cota volta às 21h (horário de Brasília).
+- Com `GROQ_API_KEY`, a cadeia continua no Groq quando a cota acaba.
 - O cache de respostas e o índice de embeddings local (busca semântica)
   não consomem cota.
 - O escalonamento entre modelos só troca de modelo em caso de erro de
@@ -224,20 +285,23 @@ e compare o placar.
 
 - **Conexão com Databricks**: exigiria infraestrutura própria de outra
   atividade; fora do escopo de tempo deste projeto.
-- **Persistência de memória entre reinícios**: a memória de conversa é
-  perdida ao reiniciar o servidor (aceitável para o escopo da atividade).
+- **Persistência de memória entre reinícios**: a memória de conversa do
+  servidor é perdida ao reiniciar (aceitável para o escopo da atividade). A UI
+  guarda a conversa no navegador, mas depois de um reinício a próxima pergunta
+  não herda o contexto.
 
 ## Estrutura do projeto
 
 ```
 app/
-  main.py          FastAPI: POST /ask, GET /health, serve static/
+  main.py          FastAPI: POST /ask, GET /health, GET /models, serve static/
   cli.py            REPL interativo (python -m app.cli)
   factory.py         monta o Orchestrator de produção
   config.py            variáveis de ambiente e constantes
   db.py                 conexão SQLite somente-leitura + introspecção de schema
   guardrails.py          validação de SQL (SELECT/WITH/EXPLAIN)
-  llm.py                   cliente OpenRouter + conversão de erros de infra
+  llm.py                   clientes OpenRouter/Groq, roteamento por prefixo, erros de infra
+  model_catalog.py         confere a cadeia contra o catálogo do OpenRouter
   tools.py                  schemas de tools (execute_sql, semantic_search_synopses,
                              get_distinct_values, finalize_answer)
   orchestrator.py            loop de tool-calling, memória, escalonamento por falha
@@ -245,8 +309,11 @@ app/
   memory.py                     histórico de conversa por sessão
   cache.py                       cache de resposta por pergunta normalizada
   embeddings.py                   índice local de embeddings sobre as sinopses
-static/index.html    UI (pergunta + resposta + gráfico + painel de detalhes técnicos)
+static/index.html    UI (conversa salva, gráfico, tabela/CSV, painel técnico)
 eval/                 conjunto de avaliação e gerador de relatório
-tests/                suíte pytest (sem rede — roda sempre)
+scripts/              build_sample_db.py: gera a amostra do banco usada no CI
+tests/                suíte pytest (sem rede); fixtures/ tem a amostra do banco
+docs/decisoes.md      decisões técnicas com evidência
 data/                 cinerocket.db + cache/embeddings gerados (gitignored)
+Dockerfile, docker-compose.yml, pyproject.toml, .github/workflows/ci.yml
 ```
