@@ -585,3 +585,51 @@ def test_stores_turn_in_memory_after_answering(empty_cache):
     history = memory.get_history("s1")
     assert {"role": "user", "content": "pergunta de sessão"} in history
     assert {"role": "assistant", "content": "resposta"} in history
+
+
+def _prompt(empty_cache):
+    return _build_orchestrator_for_prompt(empty_cache)._system_prompt()
+
+
+def _build_orchestrator_for_prompt(empty_cache):
+    return Orchestrator(
+        complete_fn=lambda *a, **k: None,
+        tool_executor=lambda *a, **k: {},
+        memory=SessionMemory(max_turns=2),
+        cache=empty_cache,
+        model_chain=["m"],
+        max_iterations=1,
+        schema_linker=lambda *a, **k: {},
+    )
+
+
+def test_system_prompt_states_todays_date_for_relative_periods(empty_cache):
+    from datetime import date
+
+    prompt = _prompt(empty_cache)
+    assert date.today().isoformat() in prompt
+    assert "{today}" not in prompt
+
+
+def test_system_prompt_encodes_dataset_pitfalls(empty_cache):
+    prompt = _prompt(empty_cache)
+    assert "96%" in prompt  # receita nula é a regra, não a exceção
+    assert "receita_usd IS NOT NULL" in prompt  # lucro médio: só receita
+    assert "receita IS NOT NULL AND orcamento IS NOT NULL" in prompt  # demais lucros
+    assert "sk_person_id" in prompt  # agrupar por chave por causa de homônimos
+    assert "MATERIALIZED" in prompt  # exemplo da dupla ator–diretor
+
+
+def test_pair_query_example_in_prompt_is_valid_and_passes_guardrail(empty_cache):
+    import re
+
+    from app import db
+    from app.guardrails import validate_sql
+
+    prompt = _prompt(empty_cache)
+    match = re.search(r"(WITH direcoes AS MATERIALIZED.*?LIMIT 1)", prompt, re.DOTALL)
+    assert match, "exemplo da dupla ator–diretor ausente do prompt"
+    sql = validate_sql(match.group(1))
+    # EXPLAIN QUERY PLAN prova que o SQL do exemplo compila contra o schema real
+    # sem pagar os ~12s da execução.
+    assert db.run_query("EXPLAIN QUERY PLAN " + sql, timeout_seconds=10)

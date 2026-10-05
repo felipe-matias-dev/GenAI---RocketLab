@@ -1,5 +1,6 @@
 import json
 import math
+from datetime import date
 from typing import Callable, Optional
 
 from app.cache import ResponseCache
@@ -28,6 +29,33 @@ colunas de alta cardinalidade (nome de pessoa, produtora), SEMPRE passe o \
 parâmetro `contains` com um trecho do nome — sem isso a lista é cortada e \
 pode nem conter o valor procurado (`truncated: true` no resultado avisa \
 disso).
+
+Regras analíticas (o banco tem armadilhas — siga-as):
+- Dados ausentes: ~96% dos filmes têm receita NULL e ~92% têm orçamento NULL. NULL significa "não informado", nunca zero. Nunca use COALESCE(receita, 0).
+- Lucro: para "lucro médio por gênero considerando apenas filmes com receita informada", filtre só `receita_usd IS NOT NULL` (lucro_usd já vem calculado). Para QUALQUER outra análise de lucro (lucro total por produtora, margem), exija `receita IS NOT NULL AND orcamento IS NOT NULL`. Informe na resposta quantos filmes entraram no cálculo.
+- Margem de lucro de um filme = 100.0 * (receita - orcamento) / receita, com receita > 0. Margem média por grupo = AVG da margem de cada filme (não a razão entre somas).
+- Moeda: use USD por padrão e BRL (colunas *_brl) só se o usuário pedir "R$" ou reais. Diga qual moeda usou.
+- Médias de nota: ignore notas NULL (`nota_imdb IS NOT NULL`) e retorne também o COUNT dos filmes considerados. "Divergência" entre duas notas = ABS(nota_a - nota_b), com as duas não nulas.
+- Pessoas e filmes: nomes se repetem (há ~48 mil nomes duplicados em dim_people) — agrupe SEMPRE pela chave (sk_person_id, sk_movie_id) e só depois traga o nome. Em pontes muitas-para-muitas conte filmes distintos.
+- Desempate: ordene pela métrica DESC e, em caso de empate, por nome/título ASC. Pergunta no singular ("qual ator...") pede 1 resultado; ranking sem tamanho pedido, 10.
+- Datas: `data_lancamento` é texto ISO (YYYY-MM-DD) e `ano_lancamento` é INTEGER — nunca compare um com o formato do outro. "Últimos N anos" = `data_lancamento BETWEEN date('{today}', '-N years') AND '{today}'` (hoje é {today}); exclua lançamentos futuros nas análises por ano.
+- Popularidade (coluna `popularidade`) não é o mesmo que quantidade de avaliações de usuários (`dim_reviews.qtd_avaliacoes_usuarios`); a nota média dos usuários vem de `dim_reviews.nota_media_usuarios` (movie_reviews guarda avaliações individuais, não use para agregados).
+- Papéis em dim_people.tipo_pessoa: 'Ator', 'Diretor', 'Roteirista'.
+- DESEMPENHO — dupla ator–diretor que mais trabalhou junta: um JOIN comum entre pessoas e a ponte (745 mil linhas) estoura o tempo limite. Use exatamente esta estrutura (diretores materializados, CROSS JOIN na ponte, agrupar pelas chaves antes dos nomes, filtrar 'Ator' só no final):
+  WITH direcoes AS MATERIALIZED (
+    SELECT b.sk_movie_id, b.sk_person_id FROM dim_people p
+    JOIN bridge_movie_person b USING (sk_person_id) WHERE p.tipo_pessoa = 'Diretor'
+  ), pares AS (
+    SELECT b.sk_person_id AS ator_id, d.sk_person_id AS diretor_id, COUNT(*) AS filmes
+    FROM direcoes d CROSS JOIN bridge_movie_person b ON b.sk_movie_id = d.sk_movie_id
+    GROUP BY b.sk_person_id, d.sk_person_id
+  )
+  SELECT a.nome_pessoa AS ator, d.nome_pessoa AS diretor, p.filmes
+  FROM pares p JOIN dim_people a ON a.sk_person_id = p.ator_id
+  JOIN dim_people d ON d.sk_person_id = p.diretor_id
+  WHERE a.tipo_pessoa = 'Ator'
+  ORDER BY p.filmes DESC, a.nome_pessoa, d.nome_pessoa LIMIT 1
+- Se uma consulta falhar por tempo limite, simplifique (menos JOINs, filtre antes de juntar) em vez de repetir a mesma consulta.
 
 Para concluir sua resposta:
 - Você DEVE sempre chamar a tool `finalize_answer` para encerrar o turno, \
@@ -170,7 +198,9 @@ class Orchestrator:
 
     def _system_prompt(self, relevant_schema: str = "(não disponível — use o schema completo)") -> str:
         return SYSTEM_PROMPT_TEMPLATE.format(
-            schema=get_schema_description(), relevant_schema=relevant_schema
+            schema=get_schema_description(),
+            relevant_schema=relevant_schema,
+            today=date.today().isoformat(),
         )
 
     def _run_model_chain(self, messages: list[dict]) -> dict:
