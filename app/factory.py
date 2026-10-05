@@ -1,5 +1,11 @@
 from app.cache import ResponseCache
-from app.config import CACHE_PATH, MAX_SESSION_TURNS, MAX_TOOL_ITERATIONS, MODEL_CHAIN
+from app.config import (
+    CACHE_PATH,
+    MAX_SESSION_TURNS,
+    MAX_TOOL_ITERATIONS,
+    MODEL_CHAIN,
+    SCHEMA_LINKING_ENABLED,
+)
 from app.db import get_schema_description
 from app.llm import complete, get_client
 from app.memory import SessionMemory
@@ -15,7 +21,9 @@ def build_orchestrator() -> Orchestrator:
     def _complete_fn(model: str, messages: list[dict], tools: list[dict]):
         return complete(client, model, messages, tools)
 
-    def _schema_linker(question: str, history: list[dict]) -> dict:
+    def _schema_linker(question: str, history: list[dict]) -> dict | None:
+        if not SCHEMA_LINKING_ENABLED:
+            return None
         return link_schema_with_model_chain(
             _complete_fn, MODEL_CHAIN, question, get_schema_description(), history=history
         )

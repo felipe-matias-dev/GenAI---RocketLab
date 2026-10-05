@@ -38,3 +38,8 @@ SQL_TIMEOUT_SECONDS = 30
 # tempo suficiente para uma resposta normal, e curto o bastante para que o
 # fallback (ModelUnavailable) entre em ação rápido quando o modelo travar.
 LLM_REQUEST_TIMEOUT_SECONDS = 20
+
+# O schema linking custa 1 chamada extra por pergunta (cota de 50/dia nos modelos
+# :free). Desligável por SCHEMA_LINKING=off para medir se o ganho compensa — o
+# schema completo continua indo no prompt de qualquer forma.
+SCHEMA_LINKING_ENABLED = os.environ.get("SCHEMA_LINKING", "on").strip().lower() not in {"off", "0", "false", "no"}

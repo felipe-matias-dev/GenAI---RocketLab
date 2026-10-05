@@ -90,3 +90,18 @@ def test_static_ui_served_at_root(client):
 
     assert response.status_code == 200
     assert "<html" in response.text.lower()
+
+
+def test_schema_linking_can_be_disabled_by_env(monkeypatch):
+    import importlib
+
+    from app import config
+
+    monkeypatch.setenv("SCHEMA_LINKING", "off")
+    importlib.reload(config)
+    try:
+        assert config.SCHEMA_LINKING_ENABLED is False
+    finally:
+        monkeypatch.delenv("SCHEMA_LINKING")
+        importlib.reload(config)
+    assert config.SCHEMA_LINKING_ENABLED is True
