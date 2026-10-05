@@ -254,6 +254,94 @@
     hyphens: auto;
   }
 
+  /* line chart (séries por ano) */
+  .reel-line{
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .reel-line .area{ fill: rgba(76,138,133,0.18); }
+  .reel-line .line{ fill: none; stroke: #8fc9c4; stroke-width: 2; stroke-linejoin: round; }
+  .reel-line .dot{ fill: var(--teal); }
+  .reel-line .axis{ stroke: var(--rail); stroke-width: 1; }
+  .reel-line text{
+    font-family: var(--font-mono);
+    font-size: 10px;
+    fill: var(--cream-dim);
+  }
+  .chart-caption{
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--cream-dim);
+    margin-top: 0.5rem;
+    text-align: center;
+  }
+
+  /* data table */
+  .ledger{
+    margin-top: 0.9rem;
+    max-width: 100%;
+    max-height: 22rem;
+    overflow: auto;
+    border: 1px solid var(--rail-dim);
+    background: var(--ink-raised);
+  }
+  .ledger table{
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    font-variant-numeric: tabular-nums;
+    min-width: 100%;
+  }
+  .ledger th, .ledger td{
+    padding: 0.4rem 0.7rem;
+    border-bottom: 1px solid var(--rail-dim);
+    text-align: left;
+    white-space: nowrap;
+  }
+  .ledger th{
+    position: sticky;
+    top: 0;
+    background: var(--ink-raised);
+    color: var(--gold);
+    font-weight: 600;
+  }
+  .ledger td{ color: var(--cream); }
+  .ledger td.num{ text-align: right; }
+  .ledger-note{
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--cream-dim);
+    padding: 0.5rem 0.7rem;
+  }
+
+  /* conversation toolbar */
+  .reel-tools{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--cream-dim);
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--rail-dim);
+  }
+  .reel-tools[hidden]{ display: none; }
+  .ghost-btn{
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--gold);
+    background: none;
+    border: 1px solid var(--gold-dim);
+    border-radius: 2px;
+    padding: 0.35rem 0.8rem;
+    cursor: pointer;
+  }
+  .ghost-btn:hover{ color: var(--cream); border-color: var(--gold); }
+  .ghost-btn:focus-visible{ outline: 2px solid var(--focus); outline-offset: 2px; }
+
   .take-meta{
     display: flex;
     flex-wrap: wrap;
@@ -435,6 +523,11 @@
       </dl>
     </header>
 
+    <div class="reel-tools" id="reel-tools" hidden>
+      <span id="reel-count"></span>
+      <button type="button" class="ghost-btn" id="new-conversation">Nova conversa</button>
+    </div>
+
     <main class="reel-body" id="reel-body"></main>
 
     <div class="gate-dock">
@@ -448,7 +541,7 @@
       </form>
     </div>
 
-    <p class="foot-note">Confiança e raciocínio reportados pelo próprio modelo. Nem toda pergunta recebe os dois.</p>
+    <p class="foot-note">Confiança e raciocínio reportados pelo próprio modelo. Nem toda pergunta recebe os dois. A conversa fica salva neste navegador.</p>
   </div>
 
   <div class="rail right" aria-hidden="true"></div>
@@ -456,11 +549,55 @@
 
 <script>
 (function(){
-  var sessionId = crypto.randomUUID();
   var reel = document.getElementById("reel-body");
   var form = document.getElementById("ask-form");
   var textarea = document.getElementById("question");
   var clapBtn = document.getElementById("clap-btn");
+  var tools = document.getElementById("reel-tools");
+  var countLabel = document.getElementById("reel-count");
+  var newConversationBtn = document.getElementById("new-conversation");
+
+  // A conversa (session_id + perguntas e respostas) sobrevive a recarregar a
+  // página. A memória do servidor é só em RAM: se ele reiniciar, o histórico
+  // continua visível aqui, mas a próxima pergunta não herda o contexto.
+  var STORAGE_KEY = "cinedata.conversa.v1";
+  var MAX_STORED_TAKES = 30;
+  var MAX_STORED_ROWS = 200;
+
+  function newState(){ return { sessionId: crypto.randomUUID(), takes: [] }; }
+
+  function loadState(){
+    try {
+      var raw = window.localStorage.getItem(STORAGE_KEY);
+      var parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed.sessionId === "string" && Array.isArray(parsed.takes)) return parsed;
+    } catch (e) { /* armazenamento indisponível: começa vazio */ }
+    return newState();
+  }
+
+  function saveState(){
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) { /* cota cheia ou modo privado: a conversa segue só na tela */ }
+  }
+
+  function rememberTake(take){
+    if (take.body && Array.isArray(take.body.data) && take.body.data.length > MAX_STORED_ROWS){
+      take.body = Object.assign({}, take.body, { data: take.body.data.slice(0, MAX_STORED_ROWS) });
+    }
+    state.takes.push(take);
+    state.takes = state.takes.slice(-MAX_STORED_TAKES);
+    saveState();
+    updateTools();
+  }
+
+  function updateTools(){
+    var n = state.takes.length;
+    tools.hidden = n === 0;
+    countLabel.textContent = n === 1 ? "1 pergunta nesta conversa" : n + " perguntas nesta conversa";
+  }
+
+  var state = loadState();
 
   function el(tag, className, text){
     var node = document.createElement(tag);
@@ -475,18 +612,104 @@
     return rounded.toLocaleString("pt-BR");
   }
 
+  var MAX_BAR_ROWS = 25;
+  var MAX_LINE_ROWS = 200;
+
+  function isIdKey(k){ return /^sk_|_id$/i.test(k); }
+
+  function numericKeys(rows){
+    return Object.keys(rows[0]).filter(function(k){
+      return !isIdKey(k) && rows.every(function(r){ return r[k] === null || typeof r[k] === "number"; })
+        && rows.some(function(r){ return typeof r[k] === "number"; });
+    });
+  }
+
+  function isYearKey(rows, k){
+    return /ano|year/i.test(k) && rows.every(function(r){
+      return r[k] === null || (Number.isInteger(r[k]) && r[k] >= 1850 && r[k] <= 2100);
+    });
+  }
+
+  // Série por ano vira linha; ranking com rótulo de texto vira barras. O
+  // valor nunca é a própria coluna do rótulo (antes, "nota média por ano"
+  // desenhava o ano contra o ano).
   function pickChartFields(rows){
-    if (!Array.isArray(rows) || rows.length === 0 || rows.length > 25) return null;
-    var keys = Object.keys(rows[0]);
-    var labelKey = keys.find(function(k){ return typeof rows[0][k] === "string"; }) || keys[0];
-    var valueKey = keys.find(function(k){ return typeof rows[0][k] === "number"; });
-    if (!valueKey) return null;
-    return { labelKey: labelKey, valueKey: valueKey };
+    if (!Array.isArray(rows) || rows.length < 2) return null;
+    var nums = numericKeys(rows);
+    var yearKey = nums.find(function(k){ return isYearKey(rows, k); });
+    if (yearKey){
+      if (rows.length > MAX_LINE_ROWS) return null;
+      var lineValue = nums.find(function(k){ return k !== yearKey; });
+      return lineValue ? { kind: "line", labelKey: yearKey, valueKey: lineValue } : null;
+    }
+    if (rows.length > MAX_BAR_ROWS) return null;
+    var labelKey = Object.keys(rows[0]).find(function(k){ return typeof rows[0][k] === "string"; });
+    var valueKey = nums.find(function(k){ return k !== labelKey; });
+    if (!labelKey || !valueKey) return null;
+    return { kind: "bar", labelKey: labelKey, valueKey: valueKey };
+  }
+
+  function svg(tag, attrs){
+    var node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    Object.keys(attrs || {}).forEach(function(k){ node.setAttribute(k, attrs[k]); });
+    return node;
+  }
+
+  function buildLineChart(rows, fields){
+    var points = rows
+      .filter(function(r){ return typeof r[fields.labelKey] === "number" && typeof r[fields.valueKey] === "number"; })
+      .map(function(r){ return { x: r[fields.labelKey], y: r[fields.valueKey] }; })
+      .sort(function(a, b){ return a.x - b.x; });
+    if (points.length < 2) return null;
+
+    var W = 520, H = 170, padL = 44, padR = 12, padT = 12, padB = 24;
+    var xs = points.map(function(p){ return p.x; }), ys = points.map(function(p){ return p.y; });
+    var xMin = Math.min.apply(null, xs), xMax = Math.max.apply(null, xs);
+    var yMin = Math.min.apply(null, ys), yMax = Math.max.apply(null, ys);
+    if (yMin === yMax){ yMin -= 1; yMax += 1; }
+    var sx = function(x){ return padL + (x - xMin) / ((xMax - xMin) || 1) * (W - padL - padR); };
+    var sy = function(y){ return padT + (1 - (y - yMin) / (yMax - yMin)) * (H - padT - padB); };
+
+    var chart = svg("svg", { viewBox: "0 0 " + W + " " + H, class: "reel-line", role: "img",
+      "aria-label": fields.valueKey + " por " + fields.labelKey + ", de " + xMin + " a " + xMax });
+    chart.appendChild(svg("line", { x1: padL, y1: H - padB, x2: W - padR, y2: H - padB, class: "axis" }));
+    chart.appendChild(svg("line", { x1: padL, y1: padT, x2: padL, y2: H - padB, class: "axis" }));
+
+    var path = points.map(function(p, i){ return (i ? "L" : "M") + sx(p.x).toFixed(1) + " " + sy(p.y).toFixed(1); }).join(" ");
+    chart.appendChild(svg("path", { d: path + " L" + sx(xMax) + " " + (H - padB) + " L" + sx(xMin) + " " + (H - padB) + " Z", class: "area" }));
+    chart.appendChild(svg("path", { d: path, class: "line" }));
+    if (points.length <= 40){
+      points.forEach(function(p){
+        var dot = svg("circle", { cx: sx(p.x), cy: sy(p.y), r: 2.5, class: "dot" });
+        var title = svg("title");
+        title.textContent = p.x + ": " + formatNumber(p.y);
+        dot.appendChild(title);
+        chart.appendChild(dot);
+      });
+    }
+
+    function label(text, x, y, anchor){
+      var t = svg("text", { x: x, y: y, "text-anchor": anchor });
+      t.textContent = text;
+      chart.appendChild(t);
+    }
+    label(String(xMin), padL, H - 6, "start");
+    label(String(xMax), W - padR, H - 6, "end");
+    label(formatNumber(yMax), padL - 6, padT + 8, "end");
+    label(formatNumber(yMin), padL - 6, H - padB, "end");
+
+    var wrap = el("div", "beam-wrap");
+    var beam = el("div", "beam");
+    beam.appendChild(chart);
+    beam.appendChild(el("p", "chart-caption", fields.valueKey + " por " + fields.labelKey));
+    wrap.appendChild(beam);
+    return wrap;
   }
 
   function buildChart(rows){
     var fields = pickChartFields(rows);
     if (!fields) return null;
+    if (fields.kind === "line") return buildLineChart(rows, fields);
 
     var values = rows.map(function(r){ return Number(r[fields.valueKey]) || 0; });
     var maxVal = Math.max.apply(null, values.map(Math.abs)) || 1;
@@ -538,6 +761,11 @@
       row2.appendChild(el("span", null, body.schema_link.tables.join(", ")));
       slip.appendChild(row2);
     }
+    if (body.tools_used && body.tools_used.length){
+      var rowTools = el("div", null, "Ferramentas: ");
+      rowTools.appendChild(el("span", null, body.tools_used.join(" → ")));
+      slip.appendChild(rowTools);
+    }
     if (body.reasoning){
       var row3 = el("div", null, "Raciocínio: ");
       row3.appendChild(el("span", null, body.reasoning));
@@ -565,37 +793,104 @@
     return section;
   }
 
+  var MAX_TABLE_ROWS = 100;
+
+  function buildLedger(rows, ledgerId){
+    var keys = Object.keys(rows[0]);
+    var yearCols = keys.filter(function(k){ return isYearKey(rows, k); });
+    var ledger = el("div", "ledger");
+    ledger.id = ledgerId;
+    ledger.hidden = true;
+    var table = el("table");
+    var head = el("tr");
+    keys.forEach(function(k){ head.appendChild(el("th", null, k)); });
+    var thead = el("thead");
+    thead.appendChild(head);
+    table.appendChild(thead);
+    var tbody = el("tbody");
+    rows.slice(0, MAX_TABLE_ROWS).forEach(function(row){
+      var tr = el("tr");
+      keys.forEach(function(k){
+        var v = row[k];
+        var text = v === null || v === undefined ? "—" : yearCols.indexOf(k) >= 0 ? String(v) : formatNumber(v);
+        tr.appendChild(el("td", typeof v === "number" ? "num" : null, text));
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    ledger.appendChild(table);
+    if (rows.length > MAX_TABLE_ROWS){
+      ledger.appendChild(el("p", "ledger-note", "Mostrando " + MAX_TABLE_ROWS + " de " + rows.length + " linhas; o CSV traz todas."));
+    }
+    return ledger;
+  }
+
+  function csvCell(v){
+    if (v === null || v === undefined) return "";
+    var s = String(v);
+    return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  function downloadCsv(rows, question){
+    var keys = Object.keys(rows[0]);
+    var lines = [keys.map(csvCell).join(",")].concat(rows.map(function(r){
+      return keys.map(function(k){ return csvCell(r[k]); }).join(",");
+    }));
+    // BOM para o Excel abrir os acentos corretamente.
+    var blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    var link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    var slug = question.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").slice(0, 50).replace(/^-|-$/g, "");
+    link.download = "cinedata-" + (slug || "resultado") + ".csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(function(){ URL.revokeObjectURL(link.href); }, 1000);
+  }
+
+  function toggleButton(label, target){
+    var button = el("button", "slip-toggle", label);
+    button.type = "button";
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-controls", target.id);
+    button.addEventListener("click", function(){
+      var open = !target.hidden;
+      target.hidden = open;
+      button.setAttribute("aria-expanded", String(!open));
+    });
+    return button;
+  }
+
   function fillSuccess(section, question, body){
     section.textContent = "";
     section.appendChild(el("p", "question", question));
     section.appendChild(el("p", "answer", body.answer || ""));
 
-    if (Array.isArray(body.data) && body.data.length){
-      var chart = buildChart(body.data);
+    var rows = Array.isArray(body.data) && body.data.length ? body.data : null;
+    if (rows){
+      var chart = buildChart(rows);
       if (chart) section.appendChild(chart);
     }
 
     var stamp = buildStamp(body.confidence);
-    var slipId = "slip-" + Math.random().toString(36).slice(2, 9);
-    var slip = buildSlip(body, slipId);
+    var uid = Math.random().toString(36).slice(2, 9);
+    var slip = buildSlip(body, "slip-" + uid);
+    var ledger = rows ? buildLedger(rows, "ledger-" + uid) : null;
 
-    if (stamp || slip){
+    if (stamp || slip || ledger){
       var meta = el("div", "take-meta");
       if (stamp) meta.appendChild(stamp);
-      if (slip){
-        var toggle = el("button", "slip-toggle", "ver bobina técnica");
-        toggle.type = "button";
-        toggle.setAttribute("aria-expanded", "false");
-        toggle.setAttribute("aria-controls", slipId);
-        toggle.addEventListener("click", function(){
-          var open = !slip.hidden;
-          slip.hidden = open;
-          toggle.setAttribute("aria-expanded", String(!open));
-        });
-        meta.appendChild(toggle);
+      if (ledger){
+        meta.appendChild(toggleButton("ver tabela (" + rows.length + (rows.length === 1 ? " linha)" : " linhas)"), ledger));
+        var csv = el("button", "slip-toggle", "baixar CSV");
+        csv.type = "button";
+        csv.addEventListener("click", function(){ downloadCsv(rows, question); });
+        meta.appendChild(csv);
       }
+      if (slip) meta.appendChild(toggleButton("ver bobina técnica", slip));
       section.appendChild(meta);
     }
+    if (ledger) section.appendChild(ledger);
     if (slip) section.appendChild(slip);
   }
 
@@ -625,20 +920,24 @@
     var section = renderLoading(question);
     section.scrollIntoView({ behavior: "smooth", block: "start" });
 
+    var askedIn = state.sessionId;
     fetch("/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question: question, session_id: sessionId }),
+      body: JSON.stringify({ question: question, session_id: askedIn }),
     })
       .then(function(res){
         return res.json().then(function(body){ return { ok: res.ok, body: body }; });
       })
       .then(function(result){
-        if (!result.ok){
-          fillError(section, question, result.body.detail || "falha ao consultar o agente.");
-          return;
+        var message = result.ok ? null : (result.body.detail || "falha ao consultar o agente.");
+        if (message) fillError(section, question, message);
+        else fillSuccess(section, question, result.body);
+        // "Nova conversa" clicada durante a espera: a resposta não pertence
+        // mais à conversa atual, então não é salva nela.
+        if (askedIn === state.sessionId){
+          rememberTake(message ? { question: question, error: message } : { question: question, body: result.body });
         }
-        fillSuccess(section, question, result.body);
       })
       .catch(function(err){
         fillError(section, question, String(err));
@@ -647,6 +946,22 @@
         setBusy(false);
       });
   });
+
+  newConversationBtn.addEventListener("click", function(){
+    state = newState();
+    saveState();
+    reel.textContent = "";
+    updateTools();
+    textarea.focus();
+  });
+
+  state.takes.forEach(function(take){
+    var section = el("section", "take");
+    if (take.error) fillError(section, take.question, take.error);
+    else fillSuccess(section, take.question, take.body || {});
+    reel.appendChild(section);
+  });
+  updateTools();
 
   textarea.addEventListener("input", function(){
     textarea.style.height = "auto";
