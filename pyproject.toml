@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cinedata-agent"
+version = "1.1.0"
+description = "Agente Text-to-SQL sobre a camada Gold da CineData Analytics (Rocket Lab 2026)"
+readme = "README.md"
+requires-python = ">=3.12"
+# Mesmas versões fixadas de requirements.txt (usado pelo Docker e pelo CI);
+# tests/test_packaging.py falha se as duas listas divergirem.
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "openai==1.59.6",
+    "python-dotenv==1.0.1",
+    "pydantic==2.10.4",
+    "sentence-transformers==3.3.1",
+    "numpy==2.2.1",
+    "httpx==0.28.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.4"]
+
+[tool.setuptools.packages.find]
+include = ["app*", "eval*", "scripts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

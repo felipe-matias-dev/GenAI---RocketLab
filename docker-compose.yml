@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      # cinerocket.db fica fora da imagem (580MB); cache de respostas e índice
+      # de embeddings também ficam aqui, para sobreviver a um rebuild.
+      - ./data:/app/data
+      # Modelo de embeddings baixado na primeira busca semântica.
+      - hf-cache:/home/app/.cache/huggingface
+
+volumes:
+  hf-cache:
