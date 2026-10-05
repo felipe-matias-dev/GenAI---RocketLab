@@ -40,7 +40,12 @@ TOOL_SCHEMAS = [
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Descrição do enredo/tema buscado.",
+                        "description": (
+                            "Descrição do enredo/tema buscado, ESCRITA EM INGLÊS "
+                            "(ex.: 'time travel paradox'), mesmo que a pergunta "
+                            "seja em português: as sinopses estão em inglês e o "
+                            "modelo de embeddings só entende inglês."
+                        ),
                     },
                     "k": {
                         "type": "integer",

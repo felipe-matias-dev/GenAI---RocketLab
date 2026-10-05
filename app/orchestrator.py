@@ -17,7 +17,9 @@ Regras de negócio:
 - "Receita", "Faturamento" e "Bilheteria" são sinônimos (coluna receita_usd/receita_brl).
 - Você só pode LER dados (SELECT). Não tente alterar o banco de nenhuma forma.
 - Use `semantic_search_synopses` para perguntas sobre enredo/tema/similaridade \
-de história, e `execute_sql` para perguntas estruturadas/agregações.
+de história, e `execute_sql` para perguntas estruturadas/agregações. A consulta \
+de `semantic_search_synopses` deve ser escrita em inglês (as sinopses estão em \
+inglês): "viagem no tempo" vira "time travel".
 - Se a pergunta for sobre performance ou plano de execução de uma consulta, \
 prefixe a query passada a `execute_sql` com `EXPLAIN` ou `EXPLAIN QUERY PLAN` \
 em vez de `SELECT`/`WITH` diretamente.
