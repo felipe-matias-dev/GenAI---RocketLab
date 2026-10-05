@@ -76,3 +76,60 @@ def test_connection_is_read_only_at_driver_level():
             conn.execute("DELETE FROM dim_movies")
     finally:
         conn.close()
+
+
+# Produto cartesiano com LIMIT só nas subqueries: o guardrail antigo o aceitava
+# e ele passava de 20s carregando milhões de linhas em memória.
+_CARTESIAN = (
+    "SELECT * FROM (SELECT * FROM dim_people LIMIT 3000) a "
+    "JOIN (SELECT * FROM dim_people LIMIT 3000) b"
+)
+
+
+def test_run_query_interrupts_slow_query_with_timeout():
+    with pytest.raises(db.QueryTimeoutError, match="excedeu"):
+        db.run_query(_CARTESIAN, timeout_seconds=0.3)
+
+
+def test_run_query_timeout_error_is_a_sqlite_error():
+    # tools._execute_sql só captura sqlite3.Error — o timeout tem que cair lá.
+    assert issubclass(db.QueryTimeoutError, sqlite3.Error)
+
+
+def test_run_query_max_rows_truncates_result():
+    rows = db.run_query("SELECT titulo FROM dim_movies", max_rows=7)
+    assert len(rows) == 7
+
+
+def test_run_query_without_limits_keeps_legacy_behaviour():
+    rows = db.run_query("SELECT titulo FROM dim_movies LIMIT 600")
+    assert len(rows) == 600
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT sql FROM sqlite_master LIMIT 5",
+        "SELECT * FROM pragma_table_info('dim_movies') LIMIT 5",
+        "SELECT load_extension('x') LIMIT 1",
+    ],
+)
+def test_restricted_run_query_blocks_internal_metadata_and_extensions(query):
+    with pytest.raises(sqlite3.Error):
+        db.run_query(query, timeout_seconds=5)
+
+
+def test_restricted_run_query_still_allows_regular_queries():
+    rows = db.run_query(
+        "WITH g AS (SELECT sk_genre_id, nome_genero FROM dim_genres) "
+        "SELECT upper(nome_genero) AS genero, (SELECT COUNT(*) FROM dim_movies) AS total FROM g",
+        timeout_seconds=10,
+        max_rows=100,
+    )
+    assert len(rows) == 19
+    assert rows[0]["total"] == 95645
+
+
+def test_restricted_run_query_allows_explain_query_plan():
+    rows = db.run_query("EXPLAIN QUERY PLAN SELECT titulo FROM dim_movies", timeout_seconds=5)
+    assert rows

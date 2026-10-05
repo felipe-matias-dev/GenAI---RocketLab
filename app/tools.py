@@ -1,5 +1,6 @@
 import sqlite3
 
+from app.config import DEFAULT_SQL_ROW_LIMIT, SQL_TIMEOUT_SECONDS
 from app.db import get_distinct_values, run_query
 from app.guardrails import GuardrailViolation, validate_sql
 
@@ -142,7 +143,9 @@ def _execute_sql(query: str) -> dict:
         return {"ok": False, "error": str(exc)}
 
     try:
-        rows = run_query(safe_query)
+        rows = run_query(
+            safe_query, timeout_seconds=SQL_TIMEOUT_SECONDS, max_rows=DEFAULT_SQL_ROW_LIMIT
+        )
     except sqlite3.Error as exc:
         return {"ok": False, "error": str(exc)}
 

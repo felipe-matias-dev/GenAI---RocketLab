@@ -26,6 +26,10 @@ MAX_TOOL_ITERATIONS = 6
 MAX_SESSION_TURNS = 6
 DEFAULT_SQL_ROW_LIMIT = 500
 
+# Prazo máximo de uma consulta SQL gerada pelo LLM. O banco tem ~745 mil linhas
+# em bridge_movie_person; um JOIN mal ordenado passa de minutos sem esse corte.
+SQL_TIMEOUT_SECONDS = 15
+
 # Timeout por chamada ao OpenRouter. Sem isso, o SDK da OpenAI usa 600s de
 # timeout padrão por chamada — um modelo ":free" congestionado prende a
 # requisição por minutos antes de escalar para o próximo da cadeia. 20s é

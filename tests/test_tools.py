@@ -68,3 +68,32 @@ def test_unknown_tool_returns_error():
 
     assert result["ok"] is False
     assert "error" in result
+
+
+def test_execute_sql_reports_timeout_to_the_model_instead_of_raising(monkeypatch):
+    import sqlite3
+
+    from app import tools
+
+    def slow(*args, **kwargs):
+        raise sqlite3.OperationalError("A consulta excedeu 15s e foi interrompida")
+
+    monkeypatch.setattr(tools, "run_query", slow)
+    result = tools.execute_tool("execute_sql", {"query": "SELECT 1"})
+    assert result["ok"] is False
+    assert "excedeu" in result["error"]
+
+
+def test_execute_sql_passes_timeout_and_row_cap_to_run_query(monkeypatch):
+    from app import tools
+
+    seen = {}
+
+    def fake(sql, **kwargs):
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(tools, "run_query", fake)
+    tools.execute_tool("execute_sql", {"query": "SELECT 1"})
+    assert seen["timeout_seconds"] == tools.SQL_TIMEOUT_SECONDS
+    assert seen["max_rows"] == tools.DEFAULT_SQL_ROW_LIMIT
