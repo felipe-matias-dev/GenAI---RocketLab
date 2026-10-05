@@ -16,9 +16,11 @@ CACHE_PATH = BASE_DIR / "data" / "cache.json"
 EMBEDDINGS_PATH = BASE_DIR / "data" / "embeddings.npy"
 EMBEDDINGS_IDS_PATH = BASE_DIR / "data" / "embeddings_ids.json"
 
+# Conferir periodicamente em https://openrouter.ai/api/v1/models (filtrar por
+# sufixo ":free" e "tools" em supported_parameters): modelos gratuitos somem.
 MODEL_CHAIN = [
     "nvidia/nemotron-3.5-lightning:free",
-    "z-ai/glm-5.2:free",
+    "qwen/qwen3.8-27b:free",
     "google/gemma-4-26b-a4b-it:free",
 ]
 

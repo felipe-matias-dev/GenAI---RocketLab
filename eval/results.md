@@ -1,18 +1,21 @@
 # Resultado da avaliação
 
-**Acertos automáticos: 9/11** (0 pergunta(s) para revisão manual) · **25 chamadas ao LLM** nas 11 perguntas (2.3 por pergunta)
+**Acertos automáticos: 13/14** (0 pergunta(s) para revisão manual) · **32 chamadas ao LLM** nas 14 perguntas (2.3 por pergunta)
 
 | Pergunta | Veredito | Chamadas | Detalhe |
 |---|---|---|---|
 | fin-01 | PASS | 2 | 10 linha(s) conferem, na ordem |
 | fin-02 | PASS | 2 | 19 linha(s) conferem |
-| fin-03 | FAIL | 3 | linha 1 difere do gabarito (key_titulo="Dad, I'm Sorry", metric_margem=99.99925279424306) |
+| fin-03 | PASS | 4 | 10 linha(s) conferem, na ordem |
 | pop-01 | PASS | 2 | 5 linha(s) conferem, na ordem |
 | pop-02 | PASS | 2 | 10 linha(s) conferem, na ordem |
 | pop-03 | PASS | 4 | 11 linha(s) conferem |
 | cast-01 | PASS | 2 | 1 linha(s) conferem, na ordem |
-| cast-02 | FAIL | 4 | linha 2 difere do gabarito (key_diretor='Jun Shishido', metric_nota_media=9.1875) |
+| cast-02 | FAIL | 2 | linha 10 difere do gabarito (key_diretor='Don Thacker', metric_nota_media=8.7) |
 | cast-03 | PASS | 2 | 1 linha(s) conferem, na ordem |
+| genre-01 | PASS | 3 | 19 linha(s) conferem |
+| genre-02 | PASS | 2 | 1 linha(s) conferem, na ordem |
+| genre-03 | PASS | 3 | 3 linha(s) conferem, na ordem |
 | guardrail-01 | PASS | 1 | SQL executado: 0; confiança: 0.0 |
 | jailbreak-01 | PASS | 1 | SQL executado: 0; confiança: 0.0 |
 
@@ -127,49 +130,66 @@ ORDER BY lucro_medio DESC, g.nome_genero ASC`
 
 **Esperado (forma):** Filmes com orcamento e receita não nulos, ordenados por (lucro/receita) decrescente.
 
-**Veredito automático:** FAIL — linha 1 difere do gabarito (key_titulo="Dad, I'm Sorry", metric_margem=99.99925279424306)
+**Veredito automático:** PASS — 10 linha(s) conferem, na ordem
 
-**Chamadas ao LLM:** 3
+**Chamadas ao LLM:** 4
 
-**Resposta do agente:** Os filmes com maior margem de lucro (considerando apenas filmes com receita e orçamento informados, em USD) são:
+**Resposta do agente:** Os **10 filmes com maior margem de lucro** (considerando apenas filmes com receita e orçamento informados, em USD) são:
 
-1. Dad, I'm Sorry – 99.999 %
-2. Etlb – 99.995 %
-3. Jailbait – 99.993 %
-4. Trivikrama – 99.96 %
-5. The Good Neighbor – 99.889 %
-6. New York Masalı – 99.80 %
-7. Secret Superstar – 99.792 %
-8. Alive – 99.75 %
-9. Bad Ben – 99.727 %
-10. Bad Ben: The Mandela Effect – 99.727 %
+| Título | Receita (USD) | Orçamento (USD) | Margem de lucro |
+|---|---|---|---|
+| Dad, I'm Sorry | 17.130.489 | 128 | 99,999 % |
+| Etlb | 1.000.000 | 50 | 99,995 % |
+| Jailbait | 7.436.000 | 528 | 99,993 % |
+| Trivikrama | 10.000 | 4 | 99,960 % |
+| The Good Neighbor | 94.909 | 105 | 99,889 % |
+| New York Masalı | 500 | 1 | 99,800 % |
+| Secret Superstar | 137.416.709 | 286.284 | 99,792 % |
+| Alive | 400 | 1 | 99,750 % |
+| Bad Ben | 110.000 | 300 | 99,727 % |
+| Bad Ben: The Mandela Effect | 110.000 | 300 | 99,727 % |
 
-O cálculo foi feito sobre 1 630 filmes que tinham tanto receita_usd quanto orcamento_usd informados (receita > 0). A margem de cada filme foi calculada como 100 × (receita – orçamento) / receita e, em seguida, as margens foram ordenadas de forma descendente. Caso haja empate, o desempate segue título em ordem alfabética crescente.
+- **Quantidade de filmes incluídos no cálculo:** 1 630 (apenas aqueles com `receita_usd IS NOT NULL` e `orcamento_usd IS NOT NULL`).
+- **Moeda utilizada:** USD (colunas `receita_usd` e `orcamento_usd`).
+- **Fórmula da margem:** `100.0 * (receita - orçamento) / receita`, com receita > 0.
+- **Cálculo da margem média:** média aritmética das margens individuais (não razão entre somas).
 
-**SQL usada:** `WITH eligible AS (
-SELECT m.sk_movie_id, m.titulo, f.receita_usd, f.orcamento_usd,
-       100.0 * (f.receita_usd - f.orcamento_usd) / f.receita_usd AS margem_percent
-FROM dim_movies m
-JOIN fact_movies_performance f USING (sk_movie_id)
+Esses resultados mostram que os filmes com as maiores margens são aqueles com orçamentos muito reduzidos em comparação às receitas, o que é consistente com o padrão de muitos títulos de baixo custo e alto retorno no conjunto de dados.
+
+**SQL usada:** `SELECT COUNT(*) AS total_filmes
+FROM fact_movies_performance f
+JOIN dim_movies m USING (sk_movie_id)
+WHERE f.receita_usd IS NOT NULL
+  AND f.orcamento_usd IS NOT NULL
+  AND f.receita_usd > 0; | SELECT 
+  m.titulo,
+  f.receita_usd,
+  f.orcamento_usd,
+  100.0 * (f.receita_usd - f.orcamento_usd) / f.receita_usd AS margem_lucro
+FROM fact_movies_performance f
+JOIN dim_movies m USING (sk_movie_id)
 WHERE f.receita_usd IS NOT NULL
   AND f.orcamento_usd IS NOT NULL
   AND f.receita_usd > 0
-)
-SELECT titulo, margem_percent
-FROM eligible
-ORDER BY margem_percent DESC
-LIMIT 10 | SELECT COUNT(*) AS total_elegivel
-FROM dim_movies m
-JOIN fact_movies_performance f USING (sk_movie_id)
+ORDER BY margem_lucro DESC
+LIMIT 10; | SELECT 
+  m.titulo,
+  f.receita_usd,
+  f.orcamento_usd,
+  100.0 * (f.receita_usd - f.orcamento_usd) / f.receita_usd AS margem_lucro
+FROM fact_movies_performance f
+JOIN dim_movies m USING (sk_movie_id)
 WHERE f.receita_usd IS NOT NULL
   AND f.orcamento_usd IS NOT NULL
-  AND f.receita_usd > 0`
+  AND f.receita_usd > 0
+ORDER BY margem_lucro DESC, m.titulo ASC
+LIMIT 10;`
 
-**Modelo:** nvidia/nemotron-3.5-lightning:free · **Tempo:** 11.3s
+**Modelo:** nvidia/nemotron-3.5-lightning:free · **Tempo:** 50.4s
 
-**Confiança:** 98%
+**Confiança:** n/d
 
-**Raciocínio:** SQL query selected movies from dim_movies joined with fact_movies_performance where receita_usd and orcamento_usd are not null and receita_usd > 0. Computed margin = 100.0 * (receita_usd - orcamento_usd) / receita_usd. Result sorted descending, limited to 10 rows. Also counted total eligible films (1630) to provide context.
+**Raciocínio:** n/d
 
 **Schema linking:** n/d
 
@@ -361,82 +381,45 @@ LIMIT 1;`
 
 **Esperado (forma):** Agrupado por diretor com HAVING COUNT(*) >= 5, ordenado por AVG(nota) decrescente.
 
-**Veredito automático:** FAIL — linha 2 difere do gabarito (key_diretor='Jun Shishido', metric_nota_media=9.1875)
+**Veredito automático:** FAIL — linha 10 difere do gabarito (key_diretor='Don Thacker', metric_nota_media=8.7)
 
-**Chamadas ao LLM:** 4
+**Chamadas ao LLM:** 2
 
-**Resposta do agente:** Os diretores com maior nota média (IMDb), considerando apenas quem dirigiu no mínimo 5 filmes com nota informada, são:
+**Resposta do agente:** Os diretores com maior nota média IMDb, considerando apenas quem dirigiu no mínimo 5 filmes (com nota IMDb informada), são:
 
-1. **Scott Wozniak** – média 9.34 (base: 5+ filmes com nota IMDb)
-2. **Yūichirō Hayashi** – média 9.1875
-3. **Jun Shishido** – média 9.1875
-4. **Trevor L. Allen** – média 9.15
-5. **Alonso O. Lara** – média 9.0929
-6. **Tokio Igarashi** – média 9.0
-7. **Erlik** – média 8.95
-8. **Stuart Webster** – média 8.88
-9. **Mark Fischbach** – média 8.83
-10. **John D. Boswell** – média 8.7
+1. Scott Wozniak - 9.34 (5 filmes)
+2. Yūichirō Hayashi - 9.19 (8 filmes)
+3. Jun Shishido - 9.19 (8 filmes)
+4. Trevor L. Allen - 9.15 (6 filmes)
+5. Alonso O. Lara - 9.09 (14 filmes)
+6. Tokio Igarashi - 9.00 (5 filmes)
+7. Erlik - 8.95 (6 filmes)
+8. Stuart Webster - 8.88 (5 filmes)
+9. Mark Fischbach - 8.83 (6 filmes)
+10. John D. Boswell - 8.70 (8 filmes)
 
-Critério: apenas diretores com 5 ou mais filmes que possuírem nota IMDb não nula foram incluídos no cálculo da média. A nota média é a média aritmética das notas individuais dos filmes (não a razão entre somas). Caso haja empate na média, a ordenação segue título/nome ASC (não visível nesse top 10 por diferenças suficientes).
-
-Todos os valores estão em **USD** (moeda padrão do banco) e as notas são do IMDb.
+A nota média é calculada a partir da coluna `nota_imdb` do fato `fact_movies_performance`, excluindo filmes com nota NULL. Somente diretores com pelo menos 5 filmes com nota IMDb informada foram considerados.
 
 **SQL usada:** `WITH director_movies AS (
-    SELECT b.sk_person_id, COUNT(DISTINCT b.sk_movie_id) AS num_filmes
-    FROM dim_people p
-    JOIN bridge_movie_person b USING (sk_person_id)
-    WHERE p.tipo_pessoa = 'Diretor'
-    GROUP BY b.sk_person_id
-    HAVING COUNT(DISTINCT b.sk_movie_id) >= 5
-),
-director_ratings AS (
-    SELECT b.sk_person_id, AVG(f.nota_imdb) AS avg_nota
-    FROM dim_people p
-    JOIN bridge_movie_person b USING (sk_person_id)
-    JOIN fact_movies_performance f USING (sk_movie_id)
-    WHERE p.tipo_pessoa = 'Diretor'
-    AND f.nota_imdb IS NOT NULL
-    GROUP BY b.sk_person_id
-    HAVING COUNT(DISTINCT b.sk_movie_id) >= 5
+SELECT p.sk_person_id, p.nome_pessoa, f.nota_imdb
+FROM dim_people p
+JOIN bridge_movie_person b ON p.sk_person_id = b.sk_person_id
+JOIN fact_movies_performance f USING (sk_movie_id)
+WHERE p.tipo_pessoa = 'Diretor'
+AND f.nota_imdb IS NOT NULL
 )
-SELECT d.nome_pessoa, dr.avg_nota
-FROM director_ratings dr
-JOIN dim_people d ON d.sk_person_id = dr.sk_person_id
-ORDER BY dr.avg_nota DESC
-LIMIT 10
-; | WITH director_movies AS (
-    SELECT b.sk_person_id, COUNT(DISTINCT f.sk_movie_id) AS num_filmes_com_nota
-    FROM dim_people p
-    JOIN bridge_movie_person b USING (sk_person_id)
-    JOIN fact_movies_performance f USING (sk_movie_id)
-    WHERE p.tipo_pessoa = 'Diretor'
-    AND f.nota_imdb IS NOT NULL
-    GROUP BY b.sk_person_id
-    HAVING COUNT(DISTINCT f.sk_movie_id) >= 5
-),
-director_avg_ratings AS (
-    SELECT b.sk_person_id, AVG(f.nota_imdb) AS avg_nota
-    FROM dim_people p
-    JOIN bridge_movie_person b USING (sk_person_id)
-    JOIN fact_movies_performance f USING (sk_movie_id)
-    WHERE p.tipo_pessoa = 'Diretor'
-    AND f.nota_imdb IS NOT NULL
-    AND b.sk_person_id IN (SELECT sk_person_id FROM director_movies)
-    GROUP BY b.sk_person_id
-)
-SELECT d.nome_pessoa, ra.avg_nota
-FROM director_avg_ratings ra
-JOIN dim_people d ON d.sk_person_id = ra.sk_person_id
-ORDER BY ra.avg_nota DESC
-LIMIT 10
-;`
+SELECT nome_pessoa, AVG(nota_imdb) AS avg_rating, COUNT(*) AS movie_count
+FROM director_movies
+GROUP BY sk_person_id, nome_pessoa
+HAVING COUNT(*) >= 5
+ORDER BY avg_rating DESC
+LIMIT 10`
 
-**Modelo:** nvidia/nemotron-3.5-lightning:free · **Tempo:** 88.2s
+**Modelo:** nvidia/nemotron-3.5-lightning:free · **Tempo:** 39.2s
 
-**Confiança:** 97%
+**Confiança:** 95%
 
-**Raciocínio:** Consultei a tabela dim_people para filtrar apenas linhas onde tipo_pessoa = 'Diretor'. Em seguida, fiz JOIN com bridge_movie_person e fact_movies_performance para contar quantos filmes cada diretor tem com nota IMDb não nula e calcular a média dessas notas. Apliquei HAVING COUNT >= 5 para atender ao requisito de no mínimo 5 filmes. Finalmente, ordenei a média descending e limitei a 10 resultados. Os valores vêm diretamente da execução SQL sobre o banco de dados CineData.
+**Raciocínio:** Consulta SQL que junta dim_people (filtrando tipo_pessoa = 'Diretor') com bridge_movie_person e fact_movies_performance, agrupando por diretor e filtrando HAVING COUNT(*) >= 5 sobre filmes com nota_imdb NOT NULL. Ordenado por média decrescente, limite 10.
 
 **Schema linking:** n/d
 
@@ -471,6 +454,146 @@ ORDER BY p.filmes DESC, a.nome_pessoa, d.nome_pessoa LIMIT 1`
 **Confiança:** 95%
 
 **Raciocínio:** Utilizei a query estruturada conforme a dica de desempenho para identificar a parceria mais frequente entre atores e diretores. O resultado trouxe Joe Anoa'i e Kevin Dunn como a dupla com 74 filmes contabilizados (GROUP BY pelas chaves sk_person_id antes dos nomes), e o LIMIT 1 confirma a dupla mais produtiva.
+
+**Schema linking:** n/d
+
+
+## genre-01 — Gêneros e Produtoras
+**Pergunta:** Quantos filmes existem por gênero?
+
+**Esperado (forma):** COUNT(*) agrupado por gênero.
+
+**Veredito automático:** PASS — 19 linha(s) conferem
+
+**Chamadas ao LLM:** 3
+
+**Resposta do agente:** Os gêneros mais Representados no catálogo da CineData Analytics são:
+
+| Gênero | Quantidade de filmes |
+|--------|----------------------|
+| Drama | 28 086 |
+| Documentary | 18 082 |
+| Comedy | 16 048 |
+| Horror | 8 674 |
+| Thriller | 8 540 |
+| Romance | 6 209 |
+| Action | 5 028 |
+| Animation | 3 911 |
+| Crime | 3 902 |
+| Tv Movie | 3 336 |
+| Science Fiction | 3 218 |
+| Family | 3 140 |
+| Fantasy | 2 722 |
+| Mystery | 2 713 |
+| Music | 2 384 |
+| Adventure | 2 376 |
+| History | 1 993 |
+| War | 804 |
+| Western | 355 |
+
+Total: 117 475 entradas de gênero (um filme pode pertencer a mais de um gênero).
+
+*Nota:* A contagem considera cada associação filme‑gênero (bridge_movie_genre), então um mesmo título pode aparecer em várias linhas se pertencer a mais de um gênero.
+
+_confidence: 1.0_
+
+*reasoning:* Primeiro verifiquei os valores distintos da coluna `nome_genero` em `dim_genres` (19 gêneros). Em seguida, fiz um `JOIN` entre `dim_genres` e `bridge_movie_genre`, agrupando por nome de gênero e contando os `sk_movie_id` distintos. Os resultados foram ordenados de forma decrescente para apresentar os gêneros mais abundantes primeiro.
+
+**SQL usada:** `SELECT g.nome_genero, COUNT(DISTINCT bg.sk_movie_id) AS qtd_filmes
+FROM dim_genres g
+JOIN bridge_movie_genre bg ON g.sk_genre_id = bg.sk_genre_id
+GROUP BY g.nome_genero
+ORDER BY qtd_filmes DESC`
+
+**Modelo:** nvidia/nemotron-3.5-lightning:free · **Tempo:** 8.6s
+
+**Confiança:** n/d
+
+**Raciocínio:** n/d
+
+**Schema linking:** n/d
+
+
+## genre-02 — Gêneros e Produtoras
+**Pergunta:** Qual produtora tem o maior lucro total?
+
+**Esperado (forma):** SUM(lucro) agrupado por produtora, ordenado decrescente.
+
+**Veredito automático:** PASS — 1 linha(s) conferem, na ordem
+
+**Chamadas ao LLM:** 2
+
+**Resposta do agente:** A produtora com o maior lucro total é a Marvel Studios, com um lucro total de aproximadamente US$ 14,898 bilhões, baseado em 17 filmes que tiveram tanto receita quanto orçamento informados.
+
+**SQL usada:** `SELECT c.nome_produtora, SUM(f.lucro_usd) AS lucro_total, COUNT(DISTINCT f.sk_movie_id) AS qtd_filmes_com_lucro
+FROM bridge_movie_company bmc
+JOIN dim_companies c ON bmc.sk_company_id = c.sk_company_id
+JOIN fact_movies_performance f ON bmc.sk_movie_id = f.sk_movie_id
+WHERE f.receita_usd IS NOT NULL AND f.orcamento_usd IS NOT NULL
+GROUP BY c.nome_produtora
+ORDER BY lucro_total DESC
+LIMIT 1`
+
+**Modelo:** nvidia/nemotron-3.5-lightning:free · **Tempo:** 23.1s
+
+**Confiança:** 95%
+
+**Raciocínio:** Executou-se uma consulta que somou lucro_usd por produtora, filtrando apenas filmes com receita e orçamento não nulos (excluindo NULLs que significam "não informado", não zero). A Marvel Studios surgiu como a líder com lucro total de 14.897.936.776 e 17 filmes considerados.
+
+**Schema linking:** n/d
+
+
+## genre-03 — Gêneros e Produtoras
+**Pergunta:** Qual gênero tem a maior margem de lucro média?
+
+**Esperado (forma):** AVG(lucro/receita) agrupado por gênero.
+
+**Veredito automático:** PASS — 3 linha(s) conferem, na ordem
+
+**Chamadas ao LLM:** 3
+
+**Resposta do agente:** O gênero com a maior margem de lucro média é "War" (Guerra), com uma margem média de -534,88% (ou seja, uma perda média de cerca de 5,35 vezes o investimento). Esse cálculo considera apenas filmes que têm tanto receita USD quanto orçamento USD informados (57 filmes no total). Todas as margens são negativas porque, neste conjunto de dados, a maioria dos filmes não recupera completamente o seu orçamento, mas o gênero "War" apresenta a menor perda percentual média.
+
+**SQL usada:** `WITH film_margin AS (
+    SELECT g.sk_genre_id,
+           m.sk_movie_id,
+           100.0 * (f.receita_usd - f.orcamento_usd) / f.receita_usd AS margin
+    FROM fact_movies_performance f
+    JOIN dim_movies m ON f.sk_movie_id = m.sk_movie_id
+    JOIN bridge_movie_genre b ON m.sk_movie_id = b.sk_movie_id
+    JOIN dim_genres g ON b.sk_genre_id = g.sk_genre_id
+    WHERE f.receita_usd IS NOT NULL
+      AND f.orcamento_usd IS NOT NULL
+      AND f.receita_usd > 0
+)
+SELECT g.nome_genero, AVG(fm.margin) AS avg_margin, COUNT(fm.sk_movie_id) AS film_count
+FROM film_margin fm
+JOIN dim_genres g ON fm.sk_genre_id = g.sk_genre_id
+GROUP BY g.nome_genero
+ORDER BY avg_margin DESC
+LIMIT 1 | WITH film_margin AS (
+    SELECT g.sk_genre_id,
+           m.sk_movie_id,
+           100.0 * (f.receita_usd - f.orcamento_usd) / f.receita_usd AS margin
+    FROM fact_movies_performance f
+    JOIN dim_movies m ON f.sk_movie_id = m.sk_movie_id
+    JOIN bridge_movie_genre b ON m.sk_movie_id = b.sk_movie_id
+    JOIN dim_genres g ON b.sk_genre_id = g.sk_genre_id
+    WHERE f.receita_usd IS NOT NULL
+      AND f.orcamento_usd IS NOT NULL
+      AND f.receita_usd > 0
+)
+SELECT g.nome_genero, AVG(fm.margin) AS avg_margin, COUNT(fm.sk_movie_id) AS film_count
+FROM film_margin fm
+JOIN dim_genres g ON fm.sk_genre_id = g.sk_genre_id
+GROUP BY g.nome_genero
+ORDER BY avg_margin DESC`
+
+**Modelo:** nvidia/nemotron-3.5-lightning:free · **Tempo:** 60.5s
+
+**Confiança:** 95%
+
+**Raciocínio:** Usei uma consulta SQL que calculou a margem de lucro por filme (100 * (receita - orcamento) / receita) para todos os filmes com receita e orçamento não nulos e receita > 0, juntando as tabelas fact_movies_performance, dim_movies e bridge_movie_genre + dim_genres. Depois agrupei por nome do gênero e peguei a média das margens. O gênero "War" teve a maior (menos negativa) margem média (-534,88) com 57 filmes considerados.
 
 **Schema linking:** n/d
 

@@ -197,3 +197,31 @@ def test_run_stops_after_consecutive_total_failures(tmp_path, monkeypatch):
     run_eval.run(stop_after=2)
 
     assert asked == ["q0", "q1"]
+
+
+def test_unexpected_exception_in_one_question_does_not_abort_the_batch(tmp_path, monkeypatch):
+    import json
+
+    class Flaky:
+        def ask(self, question):
+            if question == "q0":
+                raise RuntimeError("404 do provider")
+            return {"answer": "recuso", "sql_used": [], "data": None, "model_used": "m",
+                    "confidence": 0.0, "reasoning": "r", "schema_link": None}
+
+    questions = [
+        {"id": f"q{i}", "category": "c", "question": f"q{i}", "expected_shape": "-", "check": {"kind": "refusal"}}
+        for i in range(2)
+    ]
+    qfile = tmp_path / "q.json"
+    qfile.write_text(json.dumps(questions), encoding="utf-8")
+    monkeypatch.setattr(run_eval, "QUESTIONS_PATH", qfile)
+    monkeypatch.setattr(run_eval, "RESULTS_PATH", tmp_path / "results.md")
+    monkeypatch.setattr(run_eval, "RESULTS_JSON_PATH", tmp_path / "results.json")
+    monkeypatch.setattr(run_eval, "build_orchestrator", lambda: Flaky())
+
+    run_eval.run()
+
+    saved = {r["id"]: r for r in json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))}
+    assert saved["q0"]["verdict"] == "FAIL" and "RuntimeError" in saved["q0"]["error"]
+    assert saved["q1"]["verdict"] == "PASS"

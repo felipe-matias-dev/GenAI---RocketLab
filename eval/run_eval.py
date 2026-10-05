@@ -80,10 +80,10 @@ def run(ids: list[str] | None = None, stop_after: int | None = None) -> None:
             reasoning = result.get("reasoning")
             schema_link = result.get("schema_link")
             error = None
-        except AllModelsFailedError as exc:
+        except Exception as exc:  # noqa: BLE001 - uma pergunta que quebra vira FAIL, não derruba o lote
             answer, model_used, sql_used = "-", "-", "-"
             confidence, reasoning, schema_link = None, None, None
-            error = str(exc)
+            error = str(exc) if isinstance(exc, AllModelsFailedError) else f"{type(exc).__name__}: {exc}"
         elapsed = time.monotonic() - start
         llm_calls = llm.call_count - calls_before
         if error:

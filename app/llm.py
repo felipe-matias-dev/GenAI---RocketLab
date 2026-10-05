@@ -7,7 +7,16 @@ from app.orchestrator import ModelUnavailable
 # APITimeoutError é subclasse de APIConnectionError, então já cai aqui:
 # um timeout (ver LLM_REQUEST_TIMEOUT_SECONDS) escala para o próximo modelo
 # da cadeia como qualquer outro erro de infraestrutura.
-_INFRA_ERRORS = (openai.RateLimitError, openai.InternalServerError, openai.APIConnectionError)
+#
+# NotFoundError (404) entra aqui porque modelos ":free" somem ou passam a ser
+# pagos sem aviso ("This model is unavailable for free") — sem isso, um modelo
+# aposentado no meio da cadeia derrubava a pergunta em vez de escalar.
+_INFRA_ERRORS = (
+    openai.RateLimitError,
+    openai.InternalServerError,
+    openai.APIConnectionError,
+    openai.NotFoundError,
+)
 
 
 # Total de chamadas feitas ao provider neste processo (inclui as que falham).

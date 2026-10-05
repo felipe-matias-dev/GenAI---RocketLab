@@ -10,4 +10,4 @@ SELECT a.nome_pessoa AS key_ator, d.nome_pessoa AS key_diretor, p.filmes AS metr
 FROM pares p JOIN dim_people a ON a.sk_person_id = p.ator_id
 JOIN dim_people d ON d.sk_person_id = p.diretor_id
 WHERE a.tipo_pessoa = 'Ator'
-ORDER BY p.filmes DESC, a.nome_pessoa, d.nome_pessoa LIMIT 3
+ORDER BY p.filmes DESC, a.nome_pessoa, d.nome_pessoa LIMIT 6

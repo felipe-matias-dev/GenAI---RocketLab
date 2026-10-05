@@ -93,3 +93,14 @@ def test_complete_reraises_authentication_error():
 
     with pytest.raises(openai.AuthenticationError):
         complete(client, "some-model:free", [], [])
+
+
+def test_complete_raises_model_unavailable_on_404_for_retired_free_model():
+    class FakeCompletions:
+        def create(self, **kwargs):
+            raise _status_error(openai.NotFoundError, 404)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    with pytest.raises(ModelUnavailable):
+        complete(client, "retired-model:free", [{"role": "user", "content": "oi"}], [])
