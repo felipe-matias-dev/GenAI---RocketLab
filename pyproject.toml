@@ -29,3 +29,6 @@ include = ["app*", "eval*", "scripts*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Sem isso, `pytest` (diferente de `python -m pytest`) não põe a raiz no
+# sys.path e nenhum teste importa `app` — foi o que derrubou o primeiro CI.
+pythonpath = ["."]
