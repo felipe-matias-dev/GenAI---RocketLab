@@ -71,9 +71,10 @@ revelou, estão em [`docs/decisoes.md`](docs/decisoes.md).
   modelos que saíram ou perderam suporte a tools. Em 05/10/2026 isso pegou o
   `qwen/qwen3.8-27b:free`, colocado na cadeia um dia antes.
 - **Provedor reserva opcional** (`app/llm.py`): com `GROQ_API_KEY`, o
-  `openai/gpt-oss-120b` do Groq entra no fim da cadeia, com cota própria de
-  1.000 req/dia. Assim, uma cota esgotada no OpenRouter deixa de derrubar as
-  perguntas.
+  `qwen/qwen3.8-27b` do Groq entra no fim da cadeia, com cota própria.
+  Assim, uma cota esgotada no OpenRouter deixa de derrubar as perguntas. O
+  `openai/gpt-oss-120b` foi testado e descartado: não fechou nenhuma pergunta
+  no loop de tools (detalhes em `docs/decisoes.md`, D10).
 - **Agente híbrido** (`app/embeddings.py`): busca semântica sobre as
   sinopses via embeddings locais (`sentence-transformers`), sem custo de
   cota. O LLM escolhe entre `execute_sql` e `semantic_search_synopses`

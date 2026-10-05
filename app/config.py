@@ -22,9 +22,8 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODELS_URL = f"{OPENROUTER_BASE_URL}/models"
 
 # Provedor reserva (opcional): o Groq expõe uma API compatível com a da OpenAI
-# e o plano gratuito dá 1.000 requisições/dia ao openai/gpt-oss-120b (limite
-# próprio, com 8K tokens/minuto), contra 50/dia somadas de todos os ":free" do
-# OpenRouter. Só entra na cadeia se houver chave.
+# e tem cota gratuita própria, separada das 50 req/dia somadas de todos os
+# ":free" do OpenRouter. Só entra na cadeia se houver chave.
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
@@ -48,7 +47,11 @@ OPENROUTER_MODELS = _env_list(
         "google/gemma-4-26b-a4b-it:free",
     ],
 )
-GROQ_MODELS = _env_list("GROQ_MODELS", ["openai/gpt-oss-120b"])
+# qwen3.8-27b e não openai/gpt-oss-120b: medido em 05/10/2026, o gpt-oss (120b
+# e 20b) nunca fechou uma pergunta no loop de tools — depois do resultado da
+# SQL respondia vazio ou com tool call malformada (400 output_parse_failed /
+# tool_use_failed). O qwen3.8-27b respondeu em 2,4 s com o número certo.
+GROQ_MODELS = _env_list("GROQ_MODELS", ["qwen/qwen3.8-27b"])
 
 # Modelos de outro provedor levam o prefixo "<provedor>:" (ver app/llm.py).
 # O OpenRouter vem primeiro porque é o provedor sugerido pelo enunciado; o

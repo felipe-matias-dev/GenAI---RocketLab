@@ -138,16 +138,25 @@ visível. Os números vêm do `cinerocket.db`, da suíte de testes, da avaliaç�
   pergunta, e só voltam às 21h (horário de Brasília). Nenhum modelo da cadeia
   ajuda nesse cenário, porque a cota é da conta, não do modelo.
 - **Decisão:** com `GROQ_API_KEY` no `.env`, os modelos de `GROQ_MODELS`
-  (padrão `openai/gpt-oss-120b`) entram depois dos `:free` do OpenRouter, com
-  o prefixo `groq:`. O plano gratuito do Groq tem cota própria: 1.000
-  requisições/dia e 8K tokens/minuto para esse modelo. O 413 (requisição
-  grande demais) também escala, já que repetir não muda o tamanho.
-- **Alternativa descartada:** pôr o Groq em primeiro lugar. O enunciado sugere
-  o OpenRouter, então o Groq entra só quando o OpenRouter não responde.
-- **Efeito:** sem chave Groq, nada muda. Com ela, uma cota esgotada no
-  OpenRouter deixa de virar 503 na API. O caminho foi testado com clientes
-  falsos (roteamento por prefixo, 413, provedor sem chave), mas não com uma
-  chave real.
+  (padrão `qwen/qwen3.8-27b`) entram depois dos `:free` do OpenRouter, com o
+  prefixo `groq:`. O plano gratuito do Groq tem cota própria, separada da do
+  OpenRouter. O 413 (requisição grande demais) também escala, já que repetir
+  não muda o tamanho.
+- **Erros de geração:** o Groq devolve 400 quando o modelo gera uma tool call
+  malformada, nas formas `output_parse_failed` e `tool_use_failed`. A mesma
+  chamada é repetida até 2 vezes antes de escalar. Sem esse tratamento, o 400
+  subia como 500 na API.
+- **Alternativas descartadas:**
+  - Pôr o Groq em primeiro lugar: o enunciado sugere o OpenRouter, então o
+    Groq entra só quando o OpenRouter não responde.
+  - Usar `openai/gpt-oss-120b` como padrão: medido com uma chave real em
+    05/10/2026, ele não fechou nenhuma pergunta. Depois do resultado da SQL,
+    respondia vazio (4 vezes seguidas, de 18 a 38 s cada) ou com tool call
+    malformada. Também falhou com `tool_choice="required"`, com
+    `reasoning_effort="low"` e na versão `gpt-oss-20b`.
+- **Efeito:** com a chave, "Quantos filmes foram lançados em 2019?" foi
+  respondida pelo `qwen/qwen3.8-27b` no Groq em 2,4 s: 13.349 filmes, o mesmo
+  número de um `COUNT(*)` direto no banco. Sem chave Groq, nada muda.
 
 ### D11. Schema linking desligável
 
