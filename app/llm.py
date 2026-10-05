@@ -1,7 +1,13 @@
 import openai
 from openai import OpenAI
 
-from app.config import LLM_REQUEST_TIMEOUT_SECONDS, OPENROUTER_API_KEY, OPENROUTER_BASE_URL
+from app.config import (
+    GROQ_API_KEY,
+    GROQ_BASE_URL,
+    LLM_REQUEST_TIMEOUT_SECONDS,
+    OPENROUTER_API_KEY,
+    OPENROUTER_BASE_URL,
+)
 from app.orchestrator import ModelUnavailable
 
 # APITimeoutError é subclasse de APIConnectionError, então já cai aqui:
@@ -18,10 +24,31 @@ _INFRA_ERRORS = (
     openai.NotFoundError,
 )
 
+# 413 (Request Entity Too Large) é o Groq recusando uma requisição grande
+# demais — o plano gratuito do gpt-oss-120b aceita 8K tokens/minuto, e o
+# prompt com schema + resultados de tools cresce a cada iteração. Repetir não
+# resolve (o tamanho é o mesmo), mas outro modelo da cadeia pode aceitar.
+_INFRA_STATUS_CODES = {413}
+
+DEFAULT_PROVIDER = "openrouter"
+PROVIDERS = ("openrouter", "groq")
+
 
 # Total de chamadas feitas ao provider neste processo (inclui as que falham).
 # Cada uma consome cota do OpenRouter; a avaliação usa o delta por pergunta.
 call_count = 0
+
+
+def split_model(model: str) -> tuple[str, str]:
+    """Separa "groq:openai/gpt-oss-120b" em ("groq", "openai/gpt-oss-120b").
+
+    Sem prefixo conhecido, o modelo é do OpenRouter — os ids do OpenRouter têm
+    "/" e ":free", mas nunca começam com o nome de um provedor seguido de ":".
+    """
+    prefix, sep, rest = model.partition(":")
+    if sep and prefix in PROVIDERS and rest:
+        return prefix, rest
+    return DEFAULT_PROVIDER, model
 
 
 def get_client(api_key: str = OPENROUTER_API_KEY) -> OpenAI:
@@ -33,8 +60,17 @@ def get_client(api_key: str = OPENROUTER_API_KEY) -> OpenAI:
     )
 
 
+def get_groq_client(api_key: str = GROQ_API_KEY) -> OpenAI:
+    """Cliente OpenAI-compatível apontado para o Groq (provedor reserva)."""
+    return OpenAI(
+        api_key=api_key,
+        base_url=GROQ_BASE_URL,
+        timeout=LLM_REQUEST_TIMEOUT_SECONDS,
+    )
+
+
 def complete(client: OpenAI, model: str, messages: list[dict], tools: list[dict]):
-    """Chama o modelo e converte erros de infraestrutura (429/5xx/conexão) em
+    """Chama o modelo e converte erros de infraestrutura (429/413/5xx/conexão) em
     ModelUnavailable, para que o orchestrator escale para o próximo modelo da
     cadeia. Outros erros (ex.: 401 de chave inválida) propagam sem conversão,
     já que trocar de modelo gratuito não resolveria."""
@@ -47,3 +83,21 @@ def complete(client: OpenAI, model: str, messages: list[dict], tools: list[dict]
         return client.chat.completions.create(**kwargs)
     except _INFRA_ERRORS as exc:
         raise ModelUnavailable(str(exc)) from exc
+    except openai.APIStatusError as exc:
+        if exc.status_code in _INFRA_STATUS_CODES:
+            raise ModelUnavailable(str(exc)) from exc
+        raise
+
+
+def complete_routed(clients: dict[str, OpenAI], model: str, messages: list[dict], tools: list[dict]):
+    """Como `complete`, mas escolhe o cliente pelo prefixo do modelo na cadeia.
+
+    Um provedor sem cliente (ex.: "groq:..." em OPENROUTER_MODELS sem
+    GROQ_API_KEY) vira ModelUnavailable: a cadeia segue para o próximo modelo
+    em vez de a pergunta morrer num KeyError.
+    """
+    provider, model_id = split_model(model)
+    client = clients.get(provider)
+    if client is None:
+        raise ModelUnavailable(f"provedor '{provider}' sem chave configurada")
+    return complete(client, model_id, messages, tools)

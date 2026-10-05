@@ -162,6 +162,11 @@ class Orchestrator:
         self._max_iterations = max_iterations
         self._schema_linker = schema_linker
 
+    @property
+    def model_chain(self) -> list[str]:
+        """Cadeia efetiva, já filtrada pelo catálogo (ver app/model_catalog.py)."""
+        return list(self._model_chain)
+
     def ask(self, question: str, session_id: Optional[str] = None) -> dict:
         history = self._memory.get_history(session_id) if session_id else []
 

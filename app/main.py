@@ -35,6 +35,13 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/models")
+def models() -> dict:
+    """Cadeia de modelos em uso, na ordem de tentativa, já sem os modelos que
+    a checagem do catálogo do OpenRouter descartou ao iniciar."""
+    return {"model_chain": _orchestrator.model_chain}
+
+
 _OPTIONAL_FIELDS_OMITTED_WHEN_NONE = ("confidence", "reasoning", "schema_link")
 
 

@@ -104,3 +104,43 @@ def test_complete_raises_model_unavailable_on_404_for_retired_free_model():
 
     with pytest.raises(ModelUnavailable):
         complete(client, "retired-model:free", [{"role": "user", "content": "oi"}], [])
+
+
+def test_complete_raises_model_unavailable_on_413_request_too_large():
+    # Groq devolve 413 quando a requisição passa do limite de tokens por
+    # minuto do plano gratuito: outro modelo da cadeia pode ter limite maior.
+    class FakeCompletions:
+        def create(self, **kwargs):
+            raise _status_error(openai.APIStatusError, 413)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    with pytest.raises(ModelUnavailable):
+        complete(client, "openai/gpt-oss-120b", [], [])
+
+
+def test_complete_routed_uses_client_of_the_model_prefix():
+    from app.llm import complete_routed
+
+    calls = []
+
+    def fake_client(name):
+        class FakeCompletions:
+            def create(self, **kwargs):
+                calls.append((name, kwargs["model"]))
+                return SimpleNamespace(choices=[])
+
+        return SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    clients = {"openrouter": fake_client("openrouter"), "groq": fake_client("groq")}
+    complete_routed(clients, "groq:openai/gpt-oss-120b", [], [])
+    complete_routed(clients, "qwen/qwen3.8-27b:free", [], [])
+
+    assert calls == [("groq", "openai/gpt-oss-120b"), ("openrouter", "qwen/qwen3.8-27b:free")]
+
+
+def test_complete_routed_escalates_when_provider_has_no_key():
+    from app.llm import complete_routed
+
+    with pytest.raises(ModelUnavailable):
+        complete_routed({"openrouter": object()}, "groq:openai/gpt-oss-120b", [], [])

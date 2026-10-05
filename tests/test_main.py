@@ -105,3 +105,12 @@ def test_schema_linking_can_be_disabled_by_env(monkeypatch):
         monkeypatch.delenv("SCHEMA_LINKING")
         importlib.reload(config)
     assert config.SCHEMA_LINKING_ENABLED is True
+
+
+def test_models_lists_active_model_chain(client, monkeypatch):
+    monkeypatch.setattr(main._orchestrator, "_model_chain", ["a:free", "groq:b"])
+
+    response = client.get("/models")
+
+    assert response.status_code == 200
+    assert response.json() == {"model_chain": ["a:free", "groq:b"]}
