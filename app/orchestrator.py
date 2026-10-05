@@ -223,6 +223,11 @@ class Orchestrator:
     def _run_with_model(self, model: str, messages: list[dict]) -> Optional[dict]:
         sql_used: list[str] = []
         last_data = None
+        # Rastro para a avaliação: quais tools o modelo realmente chamou e o
+        # que a busca semântica devolveu — sem isso, perguntas do agente
+        # híbrido só podiam ser corrigidas à mão (ver eval/grading.py).
+        tools_used: list[str] = []
+        semantic_hits: list[dict] = []
 
         for _ in range(self._max_iterations):
             response = self._complete_fn(model, messages, TOOL_SCHEMAS)
@@ -238,6 +243,8 @@ class Orchestrator:
                     "model_used": model,
                     "confidence": None,
                     "reasoning": None,
+                    "tools_used": tools_used,
+                    "semantic_hits": semantic_hits,
                 }
 
             if not message.tool_calls:
@@ -315,6 +322,13 @@ class Orchestrator:
                     continue
 
                 result = self._tool_executor(tool_call.function.name, arguments)
+                tools_used.append(tool_call.function.name)
+
+                if tool_call.function.name == "semantic_search_synopses" and result.get("ok"):
+                    semantic_hits.extend(
+                        {"titulo": row.get("titulo"), "sinopse": row.get("sinopse")}
+                        for row in result.get("rows") or []
+                    )
 
                 if tool_call.function.name == "execute_sql" and result.get("ok"):
                     sql_used.append(arguments.get("query", ""))
@@ -340,6 +354,8 @@ class Orchestrator:
                     "sql_used": sql_used,
                     "data": last_data,
                     "model_used": model,
+                    "tools_used": tools_used,
+                    "semantic_hits": semantic_hits,
                     **finalize_result,
                 }
 

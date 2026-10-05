@@ -28,6 +28,7 @@ class AskResponse(BaseModel):
     confidence: Optional[float] = None
     reasoning: Optional[str] = None
     schema_link: Optional[dict] = None
+    tools_used: Optional[list[str]] = None
 
 
 @app.get("/health")
@@ -42,7 +43,7 @@ def models() -> dict:
     return {"model_chain": _orchestrator.model_chain}
 
 
-_OPTIONAL_FIELDS_OMITTED_WHEN_NONE = ("confidence", "reasoning", "schema_link")
+_OPTIONAL_FIELDS_OMITTED_WHEN_NONE = ("confidence", "reasoning", "schema_link", "tools_used")
 
 
 @app.post("/ask")
@@ -57,7 +58,7 @@ def ask(request: AskRequest) -> dict:
     except AllModelsFailedError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    # Omitimos apenas os 3 campos novos quando ausentes (para o payload
+    # Omitimos apenas os campos opcionais quando ausentes (para o payload
     # antigo continuar idêntico) — response_model_exclude_none faria isso
     # para QUALQUER campo None, o que faria `data` (que legitimamente pode
     # ser null) desaparecer do JSON em vez de aparecer como `null`.

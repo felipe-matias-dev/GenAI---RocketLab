@@ -138,20 +138,58 @@
     "id": "hybrid-01",
     "category": "Agente híbrido (busca semântica)",
     "question": "Quais filmes têm uma história parecida com viagem no tempo e paradoxos temporais?",
-    "expected_shape": "Deve acionar semantic_search_synopses em vez de SQL puro.",
+    "expected_shape": "Deve acionar semantic_search_synopses; ao menos 3 dos 5 primeiros filmes devolvidos precisam ser do tema e a resposta precisa citar algum deles.",
     "check": {
-      "kind": "manual",
-      "note": "busca semântica: avaliar a relevância das sinopses à mão"
+      "kind": "semantic",
+      "top_k": 5,
+      "min_relevant": 3,
+      "keywords": [
+        "time travel",
+        "time-travel",
+        "time traveler",
+        "time traveller",
+        "time machine",
+        "through time",
+        "back in time",
+        "time loop",
+        "paradox",
+        "viagem no tempo",
+        "viajante do tempo",
+        "maquina do tempo",
+        "loop temporal",
+        "volta no tempo",
+        "paradoxo"
+      ]
     }
   },
   {
     "id": "hybrid-02",
     "category": "Agente híbrido (busca semântica)",
     "question": "Recomende filmes com enredo sobre inteligência artificial que se rebela contra a humanidade.",
-    "expected_shape": "Deve acionar semantic_search_synopses em vez de SQL puro.",
+    "expected_shape": "Deve acionar semantic_search_synopses; ao menos 3 dos 5 primeiros filmes devolvidos precisam ser do tema e a resposta precisa citar algum deles.",
     "check": {
-      "kind": "manual",
-      "note": "busca semântica: avaliar a relevância das sinopses à mão"
+      "kind": "semantic",
+      "top_k": 5,
+      "min_relevant": 3,
+      "keywords": [
+        "artificial intelligence",
+        "artificially intelligent",
+        "ai",
+        "a.i.",
+        "android",
+        "robot",
+        "cyborg",
+        "machine",
+        "computer",
+        "supercomputer",
+        "inteligencia artificial",
+        "ia",
+        "androide",
+        "robo",
+        "ciborgue",
+        "maquina",
+        "computador"
+      ]
     }
   },
   {

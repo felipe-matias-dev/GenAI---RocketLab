@@ -148,3 +148,79 @@ def test_tie_tolerance_does_not_hide_a_wrong_key_outside_the_tie_group():
     ]
     data = [{"n": "A", "m": 9.5}, {"n": "Z", "m": 9.1875}, {"n": "C", "m": 9.1875}]
     assert not grade_rows(reference, data, {"kind": "rows"})[0]
+
+
+# --- agente híbrido (busca semântica) ---------------------------------------
+
+SEMANTIC_CHECK = {
+    "kind": "semantic",
+    "top_k": 3,
+    "min_relevant": 2,
+    "keywords": ["time travel", "time machine", "paradox", "maquina do tempo", "ai"],
+}
+
+
+def _semantic_result(hits, answer, tools=("semantic_search_synopses",)):
+    return {
+        "tools_used": list(tools),
+        "semantic_hits": [{"titulo": t, "sinopse": s} for t, s in hits],
+        "answer": answer,
+    }
+
+
+def test_semantic_passes_when_hits_are_on_topic_and_cited():
+    result = _semantic_result(
+        [("Loop", "A man uses a time machine."), ("Klatos", "A paradox destroys the universe."), ("Mahmood", "Music.")],
+        "Recomendo Loop e Klatos.",
+    )
+    verdict = grade(SEMANTIC_CHECK, None, result)
+    assert verdict["verdict"] == "PASS"
+    assert verdict["detail"].startswith("2/3")
+
+
+def test_semantic_fails_without_calling_the_semantic_tool():
+    result = _semantic_result([("Loop", "time machine")], "Loop", tools=("execute_sql",))
+    assert grade(SEMANTIC_CHECK, None, result)["verdict"] == "FAIL"
+
+
+def test_semantic_fails_when_retrieval_is_off_topic():
+    # Caso real medido: consulta em português contra sinopses em inglês trouxe
+    # documentários musicais para "viagem no tempo".
+    result = _semantic_result(
+        [("Beyond Noh", "Animated masks."), ("9 Fugas", "An orchestra improvises."), ("Loop", "time machine")],
+        "Beyond Noh, 9 Fugas e Loop.",
+    )
+    assert grade(SEMANTIC_CHECK, None, result)["verdict"] == "FAIL"
+
+
+def test_semantic_fails_when_answer_ignores_the_relevant_hits():
+    result = _semantic_result(
+        [("Loop", "time machine"), ("Klatos", "paradox")],
+        "Não encontrei filmes sobre o tema.",
+    )
+    assert grade(SEMANTIC_CHECK, None, result)["verdict"] == "FAIL"
+
+
+def test_semantic_keywords_ignore_accents_and_match_plurals_only_as_whole_words():
+    on_topic = _semantic_result(
+        [("A", "Uma MÁQUINA DO TEMPO quebrada."), ("B", "Two paradoxes collide."), ("C", "AI wakes up.")],
+        "A, B e C.",
+    )
+    assert grade(SEMANTIC_CHECK, None, on_topic)["detail"].startswith("3/3")
+
+    # "ai" não pode casar com "aimed" nem "paradox" com "paradoxical".
+    off_topic = _semantic_result([("A", "aimed high"), ("B", "a paradoxical man")], "A e B.")
+    assert grade(SEMANTIC_CHECK, None, off_topic)["detail"].startswith("0/2")
+
+
+def test_semantic_deduplicates_repeated_searches_before_cutting_top_k():
+    result = _semantic_result(
+        [("Loop", "time machine"), ("Loop", "time machine"), ("Klatos", "paradox"), ("Z", "x")],
+        "Loop e Klatos.",
+    )
+    assert grade(SEMANTIC_CHECK, None, result)["detail"].startswith("2/3")
+
+
+def test_hybrid_questions_are_graded_automatically():
+    hybrid = [q for q in QUESTIONS if q["id"].startswith("hybrid")]
+    assert hybrid and all(q["check"]["kind"] == "semantic" for q in hybrid)

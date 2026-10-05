@@ -162,6 +162,8 @@ def test_finalize_answer_tool_call_ends_turn_with_confidence_and_reasoning(empty
         "confidence": 0.9,
         "reasoning": "porque sim",
         "schema_link": {"tables": [], "columns": [], "reasoning": "stub"},
+        "tools_used": [],
+        "semantic_hits": [],
     }
     # O loop termina imediatamente ao ver finalize_answer — não há segunda
     # rodada de complete_fn esperando uma resposta de texto livre.
@@ -676,3 +678,23 @@ def test_data_is_the_largest_result_not_a_trailing_sanity_query(empty_cache):
     result = orchestrator.ask("top 10 e quantos elegíveis?")
     assert result["data"] == ranking
     assert len(result["sql_used"]) == 2
+
+
+def test_semantic_search_hits_and_tools_are_recorded_for_evaluation(empty_cache):
+    responses = [
+        make_response(
+            tool_calls=[make_tool_call("c1", "semantic_search_synopses", {"query": "time travel"})]
+        ),
+        make_response(
+            tool_calls=[make_tool_call("c2", "finalize_answer", {"answer": "Loop", "confidence": 0.8, "reasoning": "r"})]
+        ),
+    ]
+
+    def tool_executor(name, arguments):
+        return {"ok": True, "rows": [{"sk_movie_id": "1", "titulo": "Loop", "sinopse": "time machine", "score": 0.6}]}
+
+    orchestrator = build_orchestrator(lambda m, msgs, t: responses.pop(0), tool_executor=tool_executor, cache=empty_cache)
+    result = orchestrator.ask("filmes sobre viagem no tempo")
+
+    assert result["tools_used"] == ["semantic_search_synopses"]
+    assert result["semantic_hits"] == [{"titulo": "Loop", "sinopse": "time machine"}]

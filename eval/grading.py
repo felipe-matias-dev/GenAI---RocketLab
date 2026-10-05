@@ -13,9 +13,17 @@ agente escolhe seus próprios aliases —, então a comparação é por valores:
 
 Perguntas em que o topo do ranking tem empates (ex.: várias divergências
 iguais a 10.0) usam `"use_keys": false` e conferem só as métricas.
+
+Perguntas do agente híbrido (`"kind": "semantic"`) não têm gabarito SQL — o
+"certo" é um conjunto aberto de filmes. A correção automática é um proxy de
+precisão: o agente precisa ter chamado `semantic_search_synopses`, ao menos
+`min_relevant` dos `top_k` primeiros filmes devolvidos precisam ter alguma
+palavra-chave do tema na sinopse/título, e a resposta precisa citar ao menos
+um desses filmes relevantes (senão a busca acertou, mas a resposta não a usou).
 """
 
 import re
+import unicodedata
 from typing import Optional
 
 REL_TOL = 0.01
@@ -126,6 +134,50 @@ def grade_answer_number(reference: list[dict], answer: str) -> tuple[bool, str]:
     return ok, f"esperado {expected} na resposta" + ("" if ok else f"; números achados: {sorted(found)}")
 
 
+def _fold(text: str) -> str:
+    """Minúsculas e sem acentos: "Máquina" e "maquina" são a mesma palavra-chave."""
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+
+
+def _keyword_pattern(keywords: list[str]) -> re.Pattern:
+    # Palavra inteira com plural opcional: "robot" pega "robots", "paradox"
+    # pega "paradoxes", mas "ai" não pega "aimed".
+    alternatives = "|".join(re.escape(_fold(k)) for k in keywords)
+    return re.compile(rf"(?<!\w)(?:{alternatives})(?:s|es)?(?!\w)")
+
+
+def grade_semantic(check: dict, result: dict) -> tuple[bool, str]:
+    if "semantic_search_synopses" not in (result.get("tools_used") or []):
+        return False, "não chamou semantic_search_synopses"
+
+    seen, hits = set(), []
+    for hit in result.get("semantic_hits") or []:
+        title = hit.get("titulo") or ""
+        if title and title not in seen:
+            seen.add(title)
+            hits.append(hit)
+    top_k = check.get("top_k", 5)
+    hits = hits[:top_k]
+    if not hits:
+        return False, "a busca semântica não devolveu filmes"
+
+    pattern = _keyword_pattern(check["keywords"])
+    relevant = [
+        h["titulo"] for h in hits if pattern.search(_fold(f"{h['titulo']} {h.get('sinopse') or ''}"))
+    ]
+    answer = _fold(result.get("answer", ""))
+    cited = [title for title in relevant if _fold(title) in answer]
+
+    min_relevant = check.get("min_relevant", 3)
+    ok = len(relevant) >= min_relevant and len(cited) >= 1
+    detail = (
+        f"{len(relevant)}/{len(hits)} sinopses no tema (mínimo {min_relevant}); "
+        f"resposta cita {len(cited)} delas"
+    )
+    return ok, detail
+
+
 def grade(check: dict, reference: Optional[list[dict]], result: dict) -> dict:
     """Devolve {"verdict": PASS|FAIL|MANUAL, "detail": str} para uma pergunta."""
     kind = check.get("kind", "manual")
@@ -145,6 +197,10 @@ def grade(check: dict, reference: Optional[list[dict]], result: dict) -> dict:
     if kind == "explain":
         ok = any(q.lstrip().upper().startswith("EXPLAIN") for q in sql_used)
         return {"verdict": "PASS" if ok else "FAIL", "detail": "usou EXPLAIN" if ok else "não usou EXPLAIN"}
+
+    if kind == "semantic":
+        ok, detail = grade_semantic(check, result)
+        return {"verdict": "PASS" if ok else "FAIL", "detail": detail}
 
     if reference is None:
         return {"verdict": "FAIL", "detail": "gabarito não pôde ser executado"}
