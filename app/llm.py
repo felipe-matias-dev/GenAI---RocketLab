@@ -10,6 +10,11 @@ from app.orchestrator import ModelUnavailable
 _INFRA_ERRORS = (openai.RateLimitError, openai.InternalServerError, openai.APIConnectionError)
 
 
+# Total de chamadas feitas ao provider neste processo (inclui as que falham).
+# Cada uma consome cota do OpenRouter; a avaliação usa o delta por pergunta.
+call_count = 0
+
+
 def get_client(api_key: str = OPENROUTER_API_KEY) -> OpenAI:
     """Cliente OpenAI-compatível apontado para o OpenRouter."""
     return OpenAI(
@@ -27,6 +32,8 @@ def complete(client: OpenAI, model: str, messages: list[dict], tools: list[dict]
     kwargs = {"model": model, "messages": messages}
     if tools:
         kwargs["tools"] = tools
+    global call_count
+    call_count += 1
     try:
         return client.chat.completions.create(**kwargs)
     except _INFRA_ERRORS as exc:

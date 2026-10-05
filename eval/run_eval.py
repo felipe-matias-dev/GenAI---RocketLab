@@ -14,8 +14,26 @@ import json
 import time
 from pathlib import Path
 
+from app import llm
+from app.db import run_query
 from app.factory import build_orchestrator
 from app.orchestrator import AllModelsFailedError
+from eval.grading import grade
+
+REFERENCE_DIR = Path(__file__).parent / "reference_sql"
+REFERENCE_TIMEOUT_SECONDS = 60
+
+
+def load_reference(question_id: str) -> list[dict] | None:
+    """Executa o gabarito SQL da pergunta; None se não houver arquivo ou se falhar."""
+    path = REFERENCE_DIR / f"{question_id}.sql"
+    if not path.exists():
+        return None
+    try:
+        return run_query(path.read_text(encoding="utf-8"), timeout_seconds=REFERENCE_TIMEOUT_SECONDS)
+    except Exception as exc:  # noqa: BLE001 - gabarito quebrado vira FAIL, não derruba a avaliação
+        print(f"  (gabarito de {question_id} falhou: {exc})")
+        return None
 
 QUESTIONS_PATH = Path(__file__).parent / "questions.json"
 RESULTS_PATH = Path(__file__).parent / "results.md"
@@ -28,6 +46,8 @@ def run() -> None:
     rows = []
     for item in questions:
         start = time.monotonic()
+        calls_before = llm.call_count
+        result = None
         try:
             result = orchestrator.ask(item["question"])
             answer = result["answer"]
@@ -42,6 +62,11 @@ def run() -> None:
             confidence, reasoning, schema_link = None, None, None
             error = str(exc)
         elapsed = time.monotonic() - start
+        llm_calls = llm.call_count - calls_before
+        if error:
+            grading = {"verdict": "FAIL", "detail": error}
+        else:
+            grading = grade(item.get("check", {}), load_reference(item["id"]), result)
 
         rows.append(
             {
@@ -56,21 +81,26 @@ def run() -> None:
                 "reasoning": reasoning,
                 "schema_link": schema_link,
                 "elapsed_s": round(elapsed, 1),
+                "llm_calls": llm_calls,
+                "verdict": grading["verdict"],
+                "verdict_detail": grading["detail"],
                 "error": error,
             }
         )
-        print(f"[{item['id']}] {elapsed:.1f}s — {model_used} — {'ERRO: ' + error if error else 'ok'}")
+        print(f"[{item['id']}] {elapsed:.1f}s — {model_used} — {grading['verdict']} ({llm_calls} chamadas) — {grading['detail']}")
 
     _write_report(rows)
     print(f"\nRelatório escrito em {RESULTS_PATH}")
 
 
 def _write_report(rows: list[dict]) -> None:
-    lines = ["# Resultado da avaliação\n"]
+    lines = ["# Resultado da avaliação\n", _summary(rows), ""]
     for row in rows:
         lines.append(f"## {row['id']} — {row['category']}")
         lines.append(f"**Pergunta:** {row['question']}\n")
         lines.append(f"**Esperado (forma):** {row['expected_shape']}\n")
+        lines.append(f"**Veredito automático:** {row['verdict']} — {row['verdict_detail']}\n")
+        lines.append(f"**Chamadas ao LLM:** {row['llm_calls']}\n")
         if row["error"]:
             lines.append(f"**Erro:** {row['error']}\n")
         else:
@@ -85,6 +115,24 @@ def _write_report(rows: list[dict]) -> None:
         lines.append("")
 
     RESULTS_PATH.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _summary(rows: list[dict]) -> str:
+    counts = {v: sum(r["verdict"] == v for r in rows) for v in ("PASS", "FAIL", "MANUAL")}
+    graded = counts["PASS"] + counts["FAIL"]
+    total_calls = sum(r["llm_calls"] for r in rows)
+    lines = [
+        f"**Acertos automáticos: {counts['PASS']}/{graded}** "
+        f"({counts['MANUAL']} pergunta(s) para revisão manual) · "
+        f"**{total_calls} chamadas ao LLM** nas {len(rows)} perguntas "
+        f"({total_calls / max(len(rows), 1):.1f} por pergunta)\n",
+        "| Pergunta | Veredito | Chamadas | Detalhe |",
+        "|---|---|---|---|",
+    ]
+    for r in rows:
+        detail = r["verdict_detail"].replace("|", "/")
+        lines.append(f"| {r['id']} | {r['verdict']} | {r['llm_calls']} | {detail} |")
+    return "\n".join(lines)
 
 
 def _format_schema_link(schema_link: dict | None) -> str:
