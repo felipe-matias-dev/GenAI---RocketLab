@@ -127,7 +127,9 @@ def test_restricted_run_query_still_allows_regular_queries():
         max_rows=100,
     )
     assert len(rows) == 19
-    assert rows[0]["total"] == 95645
+    # Contagem conferida contra uma consulta sem restrições (e não contra o
+    # número fixo 95645) para a suíte rodar também na amostra do CI.
+    assert rows[0]["total"] == db.run_query("SELECT COUNT(*) AS n FROM dim_movies")[0]["n"]
 
 
 def test_restricted_run_query_allows_explain_query_plan():
